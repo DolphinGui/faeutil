@@ -13,5 +13,4 @@ int main(int argc, char **argv) {
   auto guard = sg::make_scope_guard([&]() { fclose(f); });
   auto o = ObjectFile(fileno_unlocked(f));
   parse_object(o);
-  fclose(f);
 }

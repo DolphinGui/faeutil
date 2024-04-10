@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <libelf.h>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -58,4 +59,11 @@ private:
   };
 };
 
+struct unwind_info {
+  std::unordered_map<uint32_t, int64_t> register_offsets;
+  int32_t cfa_offset{};
+};
+
+unwind_info parse_cfi(std::span<const uint8_t> cfi_initial,
+                        std::span<const uint8_t> fde_cfi);
 void parse_object(ObjectFile &);
