@@ -1,5 +1,5 @@
 project(
-  'aetgen',
+  'faeutil',
   ['cpp', 'c'],
   version: '0.1',
   default_options: ['warning_level=3', 'cpp_std=c++20'],
@@ -11,8 +11,8 @@ fmt = dependency('fmt')
 ranges = dependency('range-v3')
 
 executable(
-  'aefgen',
-  'aefgen.cpp',
+  'faegen',
+  'faegen.cpp',
   'parse_obj.cpp',
   'parse_cfi.cpp',
   'write_fae.cpp',
@@ -22,7 +22,7 @@ executable(
 )
 
 executable(
-  'mapper',
+  'faemapper',
   'mapper.cpp',
   dependencies: [dwarf, elf, fmt, ranges],
   include_directories: include_directories('include'),

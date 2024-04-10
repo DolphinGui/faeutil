@@ -5,7 +5,7 @@
 
 namespace fae {
 
-struct aef_header {
+struct header {
   char header[8] = "avrc++0";
   uint16_t length;
 };

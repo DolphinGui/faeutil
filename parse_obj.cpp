@@ -13,7 +13,6 @@
 #include <err.h>
 #include <fcntl.h>
 #include <fmt/ranges.h>
-#include <functional>
 #include <libelf.h>
 #include <optional>
 #include <span>
