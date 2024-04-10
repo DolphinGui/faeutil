@@ -52,7 +52,7 @@ ObjectFile::ObjectFile(int file)
 
   size_t section_max{};
   CHECK(elf_getshdrnum(elf, &section_max));
-  size_t sh_strtab_index{};
+
   CHECK(elf_getshdrstrndx(elf, &sh_strtab_index));
   for (size_t i = 1; i != section_max; i++) {
     using namespace std::string_view_literals;
@@ -163,43 +163,6 @@ exception_sections get_sections(ObjectFile &o) {
   return result;
 }
 
-struct CIE_unextended {
-  uint32_t length;
-  uint32_t id;
-  uint8_t version;
-};
-
-struct relocatable {
-  uint32_t symbol_index{};
-  avr::reloc_type type{};
-  uint32_t default_value{};
-  int32_t addend{};
-  uint32_t offset{};
-  relocatable(uint32_t value, uint32_t offset)
-      : default_value(value), offset{offset} {
-    THROW_IF(index.contains(offset));
-    index.insert({offset, std::ref(*this)});
-  }
-
-  static relocatable *make(const uint8_t **ptr, uint8_t encoding,
-                           const uint8_t *const begin) {
-    auto offset = *ptr - begin;
-    // yes this leaks memory
-    // no I literally do not care. this program is expected to be very short
-    // lived
-    return new relocatable(consume_ptr(ptr, encoding).val, offset);
-  }
-  static inline std::unordered_map<uint64_t,
-                                   std::reference_wrapper<relocatable>>
-      index{};
-};
-
-struct frame {
-  std::optional<relocatable *> begin, range, lsda;
-  std::unordered_map<uint32_t, int32_t> register_locs;
-  unwind_info frame;
-};
-
 struct Aug {
   uint8_t fde_aug_encoding{}, personality_encoding = DW_EH_PE_omit,
                               fde_ptr_encoding{};
@@ -238,10 +201,8 @@ void parse_cie(Dwarf_CIE const &cie, Dwarf_Off offset,
   cies.insert({offset, std::move(result)});
 }
 
-void parse_fde(Dwarf_FDE &fde, Dwarf_Off offset,
-               std::unordered_map<uint64_t, Aug> &cies,
-               std::vector<frame> &frames, const uint8_t *const segment_begin,
-               Dwarf_CFI *cfi) {
+void parse_fde(Dwarf_Off offset, std::unordered_map<uint64_t, Aug> &cies,
+               std::vector<frame> &frames, const uint8_t *const segment_begin) {
   frames.push_back({});
   frame &f = frames.back();
   auto ptr = segment_begin + offset;
@@ -283,7 +244,7 @@ std::vector<frame> parse_eh(ObjectFile &o, Elf_Data *eh,
     if (entry.CIE_id == DW_CIE_ID_64) {
       parse_cie(entry.cie, offset, cies);
     } else {
-      parse_fde(entry.fde, offset, cies, frames, segment_begin, cfi);
+      parse_fde(offset, cies, frames, segment_begin);
     }
     offset = next_offset;
   }
@@ -297,15 +258,15 @@ std::vector<frame> parse_eh(ObjectFile &o, Elf_Data *eh,
       r.addend = reloc.r_addend;
     }
   }
+
   return frames;
 }
 
 } // namespace
 
-void parse_object(ObjectFile &o) {
+std::vector<frame> parse_object(ObjectFile &o) {
   auto n = get_sections(o);
-  auto frames =
-      parse_eh(o, n.frame_sections,
-               {reinterpret_cast<Elf32_Rela *>(n.frame_relocations.b.data()),
-                n.frame_relocations.b.size() / sizeof(Elf32_Rela)});
+  return parse_eh(o, n.frame_sections,
+                  {reinterpret_cast<Elf32_Rela *>(n.frame_relocations.b.data()),
+                   n.frame_relocations.b.size() / sizeof(Elf32_Rela)});
 }

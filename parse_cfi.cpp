@@ -32,8 +32,7 @@ void parse(unwind_info *out, const uint8_t **ptr) {
   }
   switch (inst) {
   case DW_CFA_def_cfa_register: {
-    auto reg = operand(uint64_t{});
-    out->register_offsets[reg] = out->cfa_offset;
+    out->cfa_register = operand(uint64_t{});
     return;
   }
 
@@ -56,7 +55,7 @@ void parse(unwind_info *out, const uint8_t **ptr) {
 } // namespace
 
 unwind_info parse_cfi(std::span<const uint8_t> cfi_initial,
-                        std::span<const uint8_t> fde_cfi) {
+                      std::span<const uint8_t> fde_cfi) {
   unwind_info result;
   const uint8_t *ptr = cfi_initial.data();
   while (ptr < cfi_initial.end().base()) {

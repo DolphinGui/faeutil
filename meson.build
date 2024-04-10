@@ -15,6 +15,7 @@ executable(
   'aefgen.cpp',
   'parse_obj.cpp',
   'parse_cfi.cpp',
+  'write_fae.cpp',
   dependencies: [dwarf, elf, fmt, ranges],
   include_directories: include_directories('include'),
   install: true,
