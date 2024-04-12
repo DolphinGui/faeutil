@@ -36,8 +36,6 @@ struct skip {
   constexpr skip(uint8_t b) noexcept : bytes(b & ~0b10000000) {}
 };
 
-// high bit is 1
-
 enum struct reg : uint8_t {
   r2,
   r3,
@@ -66,7 +64,11 @@ constexpr inline reg enumerate(uint8_t r) {
     throw std::runtime_error("registers 18 - 27 not valid!");
   if (r > 29)
     throw std::runtime_error("registers 30, 31 not valid!");
-  return reg(r);
+  if (r < 18) {
+    return reg(r - 2);
+  } else {
+    return reg(r - 12);
+  }
 }
 
 constexpr inline uint8_t denumerate(reg r) {
@@ -112,6 +114,7 @@ constexpr inline uint8_t denumerate(reg r) {
   }
 };
 
+// high bit is 1
 struct pop {
   constexpr reg get_reg() const noexcept { return reg(_reg & ~0b10000000); }
   constexpr pop(reg b) noexcept : _reg(uint8_t(b) | 0b10000000) {}
@@ -124,22 +127,8 @@ union frame_inst {
   uint8_t byte;
   constexpr frame_inst(skip s) : s(s) {}
   constexpr frame_inst(pop p) : p(p) {}
-  constexpr bool is_pop() noexcept { return byte & 0b10000000; }
-  constexpr bool is_skip() noexcept { return !is_pop(); }
-};
-// only call-saved registers are indexed
-/*
-0 -> 2
-1 -> 3
-2 -> 4
-...
-15 -> 17
-16 -> 28
-17 -> 29
-*/
-
-struct frame_info {
-  unwind_info unwind;
+  constexpr bool is_pop() const noexcept { return byte & 0b1000'0000; }
+  constexpr bool is_skip() const noexcept { return !is_pop(); }
 };
 
 struct info_entry {

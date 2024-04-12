@@ -146,6 +146,8 @@ void create_info_section(ObjectFile &o, size_t entry_name_offset,
                        .cfa_reg = entry.cfa_reg};
     if (entry.lsda) {
       e.lsda_symbol = entry.lsda->symbol_index;
+    } else {
+      e.lsda_symbol = 0xffffffff;
     }
     std::memcpy(ptr, &e, sizeof(e));
     ptr += sizeof(e);
@@ -160,7 +162,6 @@ void write_fae(ObjectFile &o, std::span<frame> frames) {
   auto entries =
       frames | vs::transform([](auto &f) { return create_entry(f, 2); });
 
-  auto n = elf32_getehdr(o.elf);
   auto [entries_offset, info_offset] = append_section_names(o);
   create_entries_section(o, entries_offset, entries);
   create_info_section(o, info_offset, entries);
