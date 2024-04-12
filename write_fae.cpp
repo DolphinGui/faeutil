@@ -5,23 +5,32 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <elf.h>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <libelf.h>
+#include <numeric>
+#include <range/v3/range/conversion.hpp>
 #include <ranges>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
-std::array<uint8_t, 32> reg_map{2,  3,  4,  5,  6,  7,  8,  9,  10,
-                                11, 12, 13, 14, 15, 16, 17, 28, 29};
+namespace vs = std::ranges::views;
 
 struct reg_offset {
   uint8_t reg;
   int32_t offset;
 };
 
-std::vector<reg_offset> create_entry(frame &f, uint8_t ret_size) {
+struct entry_info {
+  relocatable *begin{}, *range{}, *lsda{};
+  uint32_t cfa_reg;
+  std::vector<fae::frame_inst> instructions;
+};
+
+entry_info create_entry(frame &f, uint8_t ret_size) {
   std::vector<reg_offset> offsets;
   for (auto &[reg, offset] : f.frame.register_offsets) {
     if (reg < 32) {
@@ -29,19 +38,15 @@ std::vector<reg_offset> create_entry(frame &f, uint8_t ret_size) {
                          -1 * static_cast<int32_t>(offset) - ret_size + 1});
     }
   }
+
   std::ranges::sort(offsets, {}, [](auto &o) { return o.offset; });
-  namespace vs = std::ranges::views;
-  fmt::println("usage: {}, offsets: {}", f.frame.cfa_offset,
-               offsets | vs::transform([](auto &&a) {
-                 return std::pair{a.reg, a.offset};
-               }));
   std::vector<fae::frame_inst> entry;
-  entry.reserve(f.frame.cfa_offset * -1);
   int32_t sp = f.frame.cfa_offset * -1 - ret_size;
+  entry.reserve(sp);
   while (sp > 0) {
     auto &top = offsets.back();
     if (top.offset == sp) {
-      entry.push_back(fae::pop(top.reg));
+      entry.push_back(fae::pop(fae::enumerate(top.reg)));
       offsets.pop_back();
       --sp;
     } else {
@@ -49,7 +54,15 @@ std::vector<reg_offset> create_entry(frame &f, uint8_t ret_size) {
       sp -= sp - top.offset;
     }
   }
-  return offsets;
+
+  entry.push_back(fae::skip(0));
+  // enforce alignment
+  if (entry.size() % 2 != 0) {
+    entry.push_back(fae::skip(0));
+  }
+
+  return {f.begin.value(), f.range.value(), f.lsda.value_or(nullptr),
+          f.frame.cfa_register, std::move(entry)};
 }
 
 size_t get_scn_size(Elf_Scn *section) {
@@ -68,7 +81,7 @@ constexpr std::string_view entries_name = ".fae_entries",
                            info_name = ".fae_info";
 
 std::pair<size_t, size_t> append_section_names(ObjectFile &o) {
-  auto sh_str_table = elf_getscn(o.elf, o.strtab_index);
+  auto sh_str_table = elf_getscn(o.elf, o.sh_strtab_index);
   auto size = get_scn_size(sh_str_table);
   auto data = elf_newdata(sh_str_table);
   data->d_buf = malloc(entries_name.size() + info_name.size() + 2);
@@ -81,26 +94,76 @@ std::pair<size_t, size_t> append_section_names(ObjectFile &o) {
   return {size, size + entries_name.size() + 1};
 }
 
-Elf_Scn *create_entries_section(ObjectFile &o, size_t entry_name_offset) {
+void create_entries_section(ObjectFile &o, size_t entry_name_offset,
+                            std::ranges::range auto entries) {
   auto section = elf_newscn(o.elf);
   auto header = elf32_getshdr(section);
   header->sh_type = SHT_PROGBITS;
   header->sh_flags |= SHF_ALLOC;
   header->sh_name = entry_name_offset;
 
-  return section;
+  auto sizes =
+      entries | vs::transform([](auto &&e) { return e.instructions.size(); });
+  auto total_size = std::reduce(sizes.begin(), sizes.end());
+
+  auto data = elf_newdata(section);
+  data->d_type = ELF_T_BYTE;
+  data->d_align = 2;
+  data->d_size = total_size;
+  data->d_buf = std::aligned_alloc(2, data->d_size);
+  auto ptr = static_cast<uint8_t *>(data->d_buf);
+  for (auto &&entry : entries) {
+    std::memcpy(ptr, entry.instructions.data(), entry.instructions.size());
+    ptr += entry.instructions.size();
+  }
 }
-// void write_entry(std::span<reg_offset> entry, ){}
+
+void create_info_section(ObjectFile &o, size_t entry_name_offset,
+                         std::ranges::range auto entries) {
+  auto section = elf_newscn(o.elf);
+  auto header = elf32_getshdr(section);
+  header->sh_type = 0x81100000;
+  header->sh_name = entry_name_offset;
+
+  auto data = elf_newdata(section);
+  data->d_type = ELF_T_BYTE;
+  data->d_align = 4;
+  data->d_size = sizeof(fae::info) + entries.size() * sizeof(fae::info::entry);
+  data->d_buf = std::aligned_alloc(4, data->d_size);
+  char *ptr = static_cast<char *>(data->d_buf);
+  fae::info info_header{.length = static_cast<uint32_t>(
+                            entries.size() * sizeof(fae::info::entry))};
+  std::memcpy(ptr, &info_header, sizeof(info_header));
+  ptr += sizeof(info_header);
+
+  uint32_t offset{};
+  for (auto &&entry : entries) {
+    fae::info::entry e{.offset = offset,
+                       .length =
+                           static_cast<uint32_t>(entry.instructions.size()),
+                       .begin_pc_symbol = entry.begin->symbol_index,
+                       .range_pc_symbol = entry.range->symbol_index,
+                       .cfa_reg = entry.cfa_reg};
+    if (entry.lsda) {
+      e.lsda_symbol = entry.lsda->symbol_index;
+    }
+    std::memcpy(ptr, &e, sizeof(e));
+    ptr += sizeof(e);
+    offset += static_cast<uint32_t>(entry.instructions.size());
+  }
+}
 } // namespace
 
 void write_fae(ObjectFile &o, std::span<frame> frames) {
   // todo: determine size of return address via mcu architecture
   // some avrs use sp registers 3 bytes large
-  // auto fae_entries = create_entries_section(o);
+  auto entries =
+      frames | vs::transform([](auto &f) { return create_entry(f, 2); });
 
-  auto str_table = elf_getscn(o.elf, o.sh_strtab_index);
-  fmt::println("sh_strtab size: {}", get_scn_size(str_table));
-  for (auto &f : frames) {
-    create_entry(f, 2);
-  }
+  auto n = elf32_getehdr(o.elf);
+  auto [entries_offset, info_offset] = append_section_names(o);
+  create_entries_section(o, entries_offset, entries);
+  create_info_section(o, info_offset, entries);
+
+  elf_update(o.elf, Elf_Cmd::ELF_C_WRITE);
 }

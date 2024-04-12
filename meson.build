@@ -10,6 +10,9 @@ elf = dependency('libelf')
 fmt = dependency('fmt')
 ranges = dependency('range-v3')
 
+fae_reader = static_library('fae_reader', 'read_fae.cpp', 
+  dependencies: [elf, fmt, ranges])
+
 executable(
   'faegen',
   'faegen.cpp',
@@ -22,9 +25,9 @@ executable(
 )
 
 executable(
-  'faemapper',
-  'mapper.cpp',
-  dependencies: [dwarf, elf, fmt, ranges],
+  'readfae',
+  'readfae.cpp',
+  dependencies: [dwarf, elf, fmt, ranges, fae_reader],
   include_directories: include_directories('include'),
   install: true,
 )
