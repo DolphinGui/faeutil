@@ -43,3 +43,8 @@ executable(
   include_directories: include_directories('include'),
   install: true,
 )
+install_data(
+  ['wrap_scripts/avr-g++.sh'],
+  preserve_path: false,
+  install_dir: 'bin',
+)

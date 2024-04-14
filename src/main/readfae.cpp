@@ -19,7 +19,7 @@ int main(int argc, char **argv) {
 
   auto f = fopen(argv[1], "r+");
   auto guard = sg::make_scope_guard([&]() { fclose(f); });
-  auto o = ObjectFile(fileno_unlocked(f));
+  auto o = ObjectFile(fileno_unlocked(f), argv[1]);
   auto &info = fae::read_info(o);
   if (info.length == 0) {
     fmt::println("No entries");
@@ -28,7 +28,7 @@ int main(int argc, char **argv) {
 
   auto inst = fae::get_inst(o);
 
-  for (int i = 0; i != info.length / sizeof(info.data[0]); ++i) {
+  for (size_t i = 0; i != info.length / sizeof(info.data[0]); ++i) {
     auto &entry = info.data[i];
     fmt::println("Entry {}: {} bytes at {}, pc: {}, {}", i, entry.length,
                  entry.offset, get_symbol_name(o, entry.begin_pc_symbol),

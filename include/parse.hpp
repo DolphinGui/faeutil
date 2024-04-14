@@ -37,7 +37,7 @@ struct buffer {
 
 struct ObjectFile {
   // takes ownership of file
-  ObjectFile(int file_desc);
+  ObjectFile(int file_desc, std::string name);
   ObjectFile(ObjectFile &&o) : file_desc(o.file_desc), elf(o.elf) {
     o.file_desc = 0;
     o.elf = nullptr;
@@ -50,6 +50,7 @@ struct ObjectFile {
   int file_desc{};
   Elf *elf{};
   size_t strtab_index{}, symtab_index{}, sh_strtab_index;
+  std::string name;
 
   std::string_view get_str(uint32_t offset);
   Elf32_Sym &get_sym(uint32_t index);

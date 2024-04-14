@@ -33,16 +33,16 @@
 #define CHECK_DECL(a, cond)                                                    \
   a;                                                                           \
   if (cond)                                                                    \
-  throw std::runtime_error(fmt::format("CHECK_DECL failed at line {}: {}",     \
-                                       __LINE__, elf_errmsg(elf_errno())))
+  throw std::runtime_error(fmt::format("CHECK_DECL failed at {}:{}: {}",     \
+                                       __LINE__, __FILE__ ,elf_errmsg(elf_errno())))
 
 #define THROW_IF(cond)                                                         \
   if (cond)                                                                    \
   throw std::runtime_error(                                                    \
       fmt::format("Assertion \"{}\" failed at line {}", #cond, __LINE__))
 
-ObjectFile::ObjectFile(int file)
-    : file_desc(file), elf(GlobalInitializer::init().open_elf(file)) {
+ObjectFile::ObjectFile(int file, std::string name)
+    : file_desc(file), elf(GlobalInitializer::init().open_elf(file)), name(name) {
   if (elf == nullptr)
     throw std::runtime_error(
         fmt::format("elf_begin() error: {}", elf_errmsg(-1)));
@@ -89,12 +89,6 @@ Elf *ObjectFile::GlobalInitializer::open_elf(int file_desc) {
   return elf_begin(file_desc, Elf_Cmd::ELF_C_RDWR, nullptr);
 }
 
-using buffer_view = std::span<const uint8_t>;
-template <> struct fmt::formatter<buffer> : formatter<buffer_view> {
-  auto format(buffer s, format_context &ctx) const {
-    return formatter<buffer_view>::format(buffer_view(s.b), ctx);
-  }
-};
 
 std::string_view ObjectFile::get_str(uint32_t offset) {
   CHECK_DECL(auto result = elf_strptr(elf, strtab_index, offset), !result);
@@ -159,6 +153,11 @@ exception_sections get_sections(ObjectFile &o) {
       copy_data(result.lsda_sections);
     }
   }
+
+  if (!result.frame_sections) {
+    std::exit(1);
+  }
+
   return result;
 }
 

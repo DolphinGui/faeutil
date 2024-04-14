@@ -23,7 +23,10 @@ struct header {
   char header[8] = "avrc++0";
   uint16_t length;
 };
-
+struct table_entry {
+  uint16_t pc_begin;
+  uint16_t pc_end;
+};
 /* Entries are aligned by 2 so that personality_ptr
    can be read by a single movw instruction. Pad
     using 0x00. Entries may be null terminated to

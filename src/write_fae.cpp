@@ -1,7 +1,8 @@
 #include "fae.hpp"
 #include "parse.hpp"
 #include <algorithm>
-#include <array>
+#include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -12,6 +13,7 @@
 #include <numeric>
 #include <range/v3/range/conversion.hpp>
 #include <ranges>
+#include <span>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -37,6 +39,13 @@ entry_info create_entry(frame &f, uint8_t ret_size) {
       offsets.push_back({static_cast<uint8_t>(reg),
                          -1 * static_cast<int32_t>(offset) - ret_size + 1});
     }
+  }
+  if (f.frame.cfa_offset == 0 || offsets.empty()) {
+    return {f.begin.value(),
+            f.range.value(),
+            f.lsda.value_or(nullptr),
+            f.frame.cfa_register,
+            {}};
   }
 
   std::ranges::sort(offsets, {}, [](auto &o) { return o.offset; });
@@ -77,25 +86,49 @@ size_t get_scn_size(Elf_Scn *section) {
   return total;
 }
 
-constexpr std::string_view entries_name = ".fae_entries",
-                           info_name = ".fae_info";
-
-std::pair<size_t, size_t> append_section_names(ObjectFile &o) {
-  auto sh_str_table = elf_getscn(o.elf, o.sh_strtab_index);
-  auto size = get_scn_size(sh_str_table);
-  auto data = elf_newdata(sh_str_table);
-  data->d_buf = malloc(entries_name.size() + info_name.size() + 2);
-  data->d_size = entries_name.size() + info_name.size() + 2;
-  std::memcpy(data->d_buf, entries_name.data(), entries_name.size() + 1);
-  std::memcpy(static_cast<char *>(data->d_buf) + entries_name.size() + 1,
-              info_name.data(), info_name.size() + 1);
-  data->d_align = 1;
-  data->d_off = size;
-  return {size, size + entries_name.size() + 1};
+template <typename T, size_t alignment = 0, size_t extent>
+size_t write_section(ObjectFile &o, size_t index, std::span<const T, extent> input) {
+  auto section = elf_getscn(o.elf, index);
+  auto offset = get_scn_size(section);
+  auto data = elf_newdata(section);
+  data->d_size = input.size_bytes();
+  data->d_buf = calloc(input.size(), sizeof(T));
+  if constexpr (alignment != 0) {
+    data->d_align = alignment;
+  } else {
+    data->d_align = alignof(T);
+  }
+  data->d_off = offset;
+  std::memcpy(data->d_buf, input.data(), input.size_bytes());
+  return offset;
 }
 
-void create_entries_section(ObjectFile &o, size_t entry_name_offset,
-                            std::ranges::range auto entries) {
+std::pair<size_t, size_t> append_section_names(ObjectFile &o) {
+  constexpr char name_data[] = {'.', 'f', 'a', 'e', '_', 'e', 'n', 't',
+                                'r', 'i', 'e', 's', 0,   '.', 'f', 'a',
+                                'e', '_', 'i', 'n', 'f', 'o', 0};
+  auto offset = write_section(o, o.sh_strtab_index, std::span{name_data});
+  return {offset, offset + 13};
+}
+
+void create_entry_symbol(ObjectFile &o, size_t entry_section_index) {
+  auto str_table = elf_getscn(o.elf, o.strtab_index);
+  auto size = get_scn_size(str_table);
+
+  std::string sym_name = o.name;
+  sym_name += "_fae_frames";
+  write_section(o, o.strtab_index, std::span{sym_name.c_str(), sym_name.size() + 1});
+
+  Elf32_Sym entry_symbol{};
+  entry_symbol.st_name = size;
+  entry_symbol.st_shndx = entry_section_index;
+  entry_symbol.st_value = 0;
+  entry_symbol.st_info = ELF32_ST_INFO(STB_GLOBAL, STT_OBJECT);
+  // write_section(o, o.symtab_index, std::span{&entry_symbol, 1});
+}
+
+size_t create_entries_section(ObjectFile &o, size_t entry_name_offset,
+                              std::ranges::range auto entries) {
   auto section = elf_newscn(o.elf);
   auto header = elf32_getshdr(section);
   header->sh_type = SHT_PROGBITS;
@@ -116,6 +149,7 @@ void create_entries_section(ObjectFile &o, size_t entry_name_offset,
     std::memcpy(ptr, entry.instructions.data(), entry.instructions.size());
     ptr += entry.instructions.size();
   }
+  return elf_ndxscn(section);
 }
 
 void create_info_section(ObjectFile &o, size_t entry_name_offset,
@@ -163,8 +197,9 @@ void write_fae(ObjectFile &o, std::span<frame> frames) {
       frames | vs::transform([](auto &f) { return create_entry(f, 2); });
 
   auto [entries_offset, info_offset] = append_section_names(o);
-  create_entries_section(o, entries_offset, entries);
+  auto entries_index = create_entries_section(o, entries_offset, entries);
   create_info_section(o, info_offset, entries);
+  create_entry_symbol(o, entries_index);
 
   elf_update(o.elf, Elf_Cmd::ELF_C_WRITE);
 }
