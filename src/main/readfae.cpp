@@ -4,13 +4,16 @@
 #include "parse.hpp"
 #include "read_fae.hpp"
 #include <cassert>
+#include <cstring>
 #include <elf.h>
+#include <fmt/ranges.h>
 #include <libelf.h>
 
 namespace {
 std::string_view get_symbol_name(ObjectFile &o, uint32_t index) {
   return elf_strptr(o.elf, o.strtab_index, o.get_sym(index).st_name);
 }
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -27,7 +30,6 @@ int main(int argc, char **argv) {
   }
 
   auto inst = fae::get_inst(o);
-
   for (size_t i = 0; i != info.length / sizeof(info.data[0]); ++i) {
     auto &entry = info.data[i];
     fmt::println("Entry {}: {} bytes at {}, pc: {}, {}", i, entry.length,

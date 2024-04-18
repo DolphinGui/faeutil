@@ -27,7 +27,7 @@ struct reg_offset {
 };
 
 struct entry_info {
-  relocatable *begin{}, *range{}, *lsda{};
+  relocatable_t *begin{}, *range{}, *lsda{};
   uint32_t cfa_reg;
   std::vector<fae::frame_inst> instructions;
 };
@@ -40,6 +40,7 @@ entry_info create_entry(frame &f, uint8_t ret_size) {
                          -1 * static_cast<int32_t>(offset) - ret_size + 1});
     }
   }
+
   if (f.frame.cfa_offset == 0 || offsets.empty()) {
     return {f.begin.value(),
             f.range.value(),
@@ -87,7 +88,8 @@ size_t get_scn_size(Elf_Scn *section) {
 }
 
 template <typename T, size_t alignment = 0, size_t extent>
-size_t write_section(ObjectFile &o, size_t index, std::span<const T, extent> input) {
+size_t write_section(ObjectFile &o, size_t index,
+                     std::span<const T, extent> input) {
   auto section = elf_getscn(o.elf, index);
   auto offset = get_scn_size(section);
   auto data = elf_newdata(section);
@@ -103,6 +105,23 @@ size_t write_section(ObjectFile &o, size_t index, std::span<const T, extent> inp
   return offset;
 }
 
+template <typename T, size_t alignment = 0>
+size_t write_section(ObjectFile &o, size_t index, auto copy, size_t bytes) {
+  auto section = elf_getscn(o.elf, index);
+  auto offset = get_scn_size(section);
+  auto data = elf_newdata(section);
+  data->d_size = bytes;
+  data->d_buf = calloc(data->d_size, sizeof(T));
+  if constexpr (alignment != 0) {
+    data->d_align = alignment;
+  } else {
+    data->d_align = alignof(T);
+  }
+  data->d_off = offset;
+  copy(data->d_buf);
+  return offset;
+}
+
 std::pair<size_t, size_t> append_section_names(ObjectFile &o) {
   constexpr char name_data[] = {'.', 'f', 'a', 'e', '_', 'e', 'n', 't',
                                 'r', 'i', 'e', 's', 0,   '.', 'f', 'a',
@@ -115,16 +134,16 @@ void create_entry_symbol(ObjectFile &o, size_t entry_section_index) {
   auto str_table = elf_getscn(o.elf, o.strtab_index);
   auto size = get_scn_size(str_table);
 
-  std::string sym_name = o.name;
-  sym_name += "_fae_frames";
-  write_section(o, o.strtab_index, std::span{sym_name.c_str(), sym_name.size() + 1});
+  std::string sym_name = '.' + o.name + "_fae_frames";
+  write_section(o, o.strtab_index,
+                std::span{sym_name.c_str(), sym_name.size() + 1});
 
   Elf32_Sym entry_symbol{};
   entry_symbol.st_name = size;
   entry_symbol.st_shndx = entry_section_index;
   entry_symbol.st_value = 0;
   entry_symbol.st_info = ELF32_ST_INFO(STB_GLOBAL, STT_OBJECT);
-  // write_section(o, o.symtab_index, std::span{&entry_symbol, 1});
+  write_section(o, o.symtab_index, std::span<const Elf32_Sym>{{entry_symbol}});
 }
 
 size_t create_entries_section(ObjectFile &o, size_t entry_name_offset,
@@ -172,10 +191,16 @@ void create_info_section(ObjectFile &o, size_t entry_name_offset,
 
   uint32_t offset{};
   for (auto &&entry : entries) {
-    fae::info::entry e{.offset = offset,
+    uint32_t off = offset;
+    if (entry.instructions.empty()) {
+      off = -1;
+    }
+    fae::info::entry e{.offset = off,
                        .length =
                            static_cast<uint32_t>(entry.instructions.size()),
+                       .begin = entry.begin->default_value,
                        .begin_pc_symbol = entry.begin->symbol_index,
+                       .range = entry.range->default_value,
                        .range_pc_symbol = entry.range->symbol_index,
                        .cfa_reg = entry.cfa_reg};
     if (entry.lsda) {

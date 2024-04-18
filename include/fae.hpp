@@ -12,7 +12,9 @@ struct info {
   struct entry {
     uint32_t offset;
     uint32_t length;
+    uint32_t begin;
     uint32_t begin_pc_symbol; // (index into symtab)
+    uint32_t range;
     uint32_t range_pc_symbol;
     uint32_t lsda_symbol;
     uint32_t cfa_reg;
@@ -26,6 +28,7 @@ struct header {
 struct table_entry {
   uint16_t pc_begin;
   uint16_t pc_end;
+  uint16_t lsda;
 };
 /* Entries are aligned by 2 so that personality_ptr
    can be read by a single movw instruction. Pad

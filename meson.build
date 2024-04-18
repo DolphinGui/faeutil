@@ -19,7 +19,7 @@ obj_util = static_library(
 )
 
 fae = static_library(
-  'fae_reader',
+  'fae',
   'src/write_fae.cpp',
   'src/read_fae.cpp',
   include_directories: include_directories('include'),
@@ -43,6 +43,16 @@ executable(
   include_directories: include_directories('include'),
   install: true,
 )
+
+executable(
+  'faemap',
+  'src/main/mapper.cpp',
+  dependencies: [dwarf, elf, fmt, ranges],
+  link_with: [fae, obj_util],
+  include_directories: include_directories('include'),
+  install: true,
+)
+
 install_data(
   ['wrap_scripts/avr-g++.sh'],
   preserve_path: false,

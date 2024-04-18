@@ -33,8 +33,9 @@
 #define CHECK_DECL(a, cond)                                                    \
   a;                                                                           \
   if (cond)                                                                    \
-  throw std::runtime_error(fmt::format("CHECK_DECL failed at {}:{}: {}",     \
-                                       __LINE__, __FILE__ ,elf_errmsg(elf_errno())))
+  throw std::runtime_error(fmt::format("CHECK_DECL failed at {}:{}: {}",       \
+                                       __LINE__, __FILE__,                     \
+                                       elf_errmsg(elf_errno())))
 
 #define THROW_IF(cond)                                                         \
   if (cond)                                                                    \
@@ -42,7 +43,8 @@
       fmt::format("Assertion \"{}\" failed at line {}", #cond, __LINE__))
 
 ObjectFile::ObjectFile(int file, std::string name)
-    : file_desc(file), elf(GlobalInitializer::init().open_elf(file)), name(name) {
+    : file_desc(file), elf(GlobalInitializer::init().open_elf(file)),
+      name(name) {
   if (elf == nullptr)
     throw std::runtime_error(
         fmt::format("elf_begin() error: {}", elf_errmsg(-1)));
@@ -89,7 +91,6 @@ Elf *ObjectFile::GlobalInitializer::open_elf(int file_desc) {
   return elf_begin(file_desc, Elf_Cmd::ELF_C_RDWR, nullptr);
 }
 
-
 std::string_view ObjectFile::get_str(uint32_t offset) {
   CHECK_DECL(auto result = elf_strptr(elf, strtab_index, offset), !result);
   return result;
@@ -104,6 +105,13 @@ Elf32_Sym &ObjectFile::get_sym(uint32_t index) {
   // haha std::span still has no bounds checking
   THROW_IF(index >= data->d_size / sizeof(Elf32_Sym));
   return static_cast<Elf32_Sym *>(data->d_buf)[index];
+}
+std::string_view ObjectFile::get_section_name(uint32_t index) {
+  CHECK_DECL(auto section = elf_getscn(elf, index), !section);
+  CHECK_DECL(auto header = elf32_getshdr(section), !header);
+  CHECK_DECL(auto result = elf_strptr(elf, sh_strtab_index, header->sh_name),
+             !result);
+  return result;
 }
 
 namespace {
@@ -213,12 +221,12 @@ void parse_fde(Dwarf_Off offset, std::unordered_map<uint64_t, Aug> &cies,
   auto fde_offset = ptr - segment_begin;
   auto cie_offset = fde_offset - consume<uint32_t>(&ptr);
   auto &cie = cies.at(cie_offset);
-  f.begin = relocatable::make(&ptr, cie.fde_ptr_encoding, segment_begin);
-  f.range = relocatable::make(&ptr, cie.fde_ptr_encoding, segment_begin);
+  f.begin = relocatable_t::make(&ptr, cie.fde_ptr_encoding, segment_begin);
+  f.range = relocatable_t::make(&ptr, cie.fde_ptr_encoding, segment_begin);
   if (cie.personality_encoding != DW_EH_PE_omit) {
     std::size_t lsda_len{};
     ptr += bfs::DecodeLeb128(ptr, 4, &lsda_len);
-    f.lsda = relocatable::make(&ptr, cie.personality_encoding, segment_begin);
+    f.lsda = relocatable_t::make(&ptr, cie.personality_encoding, segment_begin);
   }
   f.frame = parse_cfi({cie.begin_instruction, cie.end_instruction},
                       {ptr, length + fde_offset + segment_begin});
@@ -248,9 +256,9 @@ std::vector<frame> parse_eh(ObjectFile &o, Elf_Data *eh,
   }
 
   for (auto &reloc : eh_reloc) {
-    if (relocatable::index.contains(reloc.r_offset)) {
+    if (relocatable_t::index.contains(reloc.r_offset)) {
       using namespace avr;
-      auto &r = relocatable::index.at(reloc.r_offset).get();
+      auto &r = relocatable_t::index.at(reloc.r_offset).get();
       r.symbol_index = r_sym(reloc.r_info);
       r.type = r_type(reloc.r_info);
       r.addend = reloc.r_addend;
