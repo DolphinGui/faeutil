@@ -75,53 +75,6 @@ entry_info create_entry(frame &f, uint8_t ret_size) {
           f.frame.cfa_register, std::move(entry)};
 }
 
-size_t get_scn_size(Elf_Scn *section) {
-  Elf_Data *data{};
-  size_t total{};
-  while (true) {
-    data = elf_getdata(section, data);
-    if (!data)
-      break;
-    total += data->d_size;
-  }
-  return total;
-}
-
-template <typename T, size_t alignment = 0, size_t extent>
-size_t write_section(ObjectFile &o, size_t index,
-                     std::span<const T, extent> input) {
-  auto section = elf_getscn(o.elf, index);
-  auto offset = get_scn_size(section);
-  auto data = elf_newdata(section);
-  data->d_size = input.size_bytes();
-  data->d_buf = calloc(input.size(), sizeof(T));
-  if constexpr (alignment != 0) {
-    data->d_align = alignment;
-  } else {
-    data->d_align = alignof(T);
-  }
-  data->d_off = offset;
-  std::memcpy(data->d_buf, input.data(), input.size_bytes());
-  return offset;
-}
-
-template <typename T, size_t alignment = 0>
-size_t write_section(ObjectFile &o, size_t index, auto copy, size_t bytes) {
-  auto section = elf_getscn(o.elf, index);
-  auto offset = get_scn_size(section);
-  auto data = elf_newdata(section);
-  data->d_size = bytes;
-  data->d_buf = calloc(data->d_size, sizeof(T));
-  if constexpr (alignment != 0) {
-    data->d_align = alignment;
-  } else {
-    data->d_align = alignof(T);
-  }
-  data->d_off = offset;
-  copy(data->d_buf);
-  return offset;
-}
-
 std::pair<size_t, size_t> append_section_names(ObjectFile &o) {
   constexpr char name_data[] = {'.', 'f', 'a', 'e', '_', 'e', 'n', 't',
                                 'r', 'i', 'e', 's', 0,   '.', 'f', 'a',

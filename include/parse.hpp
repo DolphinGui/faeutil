@@ -14,28 +14,6 @@
 #include <unordered_map>
 #include <vector>
 
-struct state2 {
-  std::string function_name;
-  size_t stack_usage{};
-  std::unordered_map<int, int> register_offsets;
-  uint16_t landing_pad_offset;
-};
-
-struct state {
-  std::string function_name;
-  size_t cfa_offset;
-  size_t cfa_register;
-  std::unordered_map<size_t, size_t> registers;
-  uint8_t personality_encoding;
-  std::string personality_section;
-  uint8_t lsda_encoding;
-  std::string lsda_section;
-};
-
-struct buffer {
-  std::basic_string<uint8_t> b;
-};
-
 struct ObjectFile {
   // takes ownership of file
   explicit ObjectFile(int file_desc);
@@ -59,6 +37,53 @@ struct ObjectFile {
   std::string_view get_section_name(uint32_t section_index);
   uint32_t get_section_offset(std::string_view name);
 };
+
+inline size_t get_scn_size(Elf_Scn *section) noexcept {
+  Elf_Data *data{};
+  size_t total{};
+  while (true) {
+    data = elf_getdata(section, data);
+    if (!data)
+      break;
+    total += data->d_size;
+  }
+  return total;
+}
+
+template <typename T, size_t alignment = 0, size_t extent>
+size_t write_section(ObjectFile &o, size_t index,
+                     std::span<const T, extent> input) {
+  auto section = elf_getscn(o.elf, index);
+  auto offset = get_scn_size(section);
+  auto data = elf_newdata(section);
+  data->d_size = input.size_bytes();
+  data->d_buf = calloc(input.size(), sizeof(T));
+  if constexpr (alignment != 0) {
+    data->d_align = alignment;
+  } else {
+    data->d_align = alignof(T);
+  }
+  data->d_off = offset;
+  std::memcpy(data->d_buf, input.data(), input.size_bytes());
+  return offset;
+}
+
+template <typename T, size_t alignment = 0>
+size_t write_section(ObjectFile &o, size_t index, auto copy, size_t bytes) {
+  auto section = elf_getscn(o.elf, index);
+  auto offset = get_scn_size(section);
+  auto data = elf_newdata(section);
+  data->d_size = bytes;
+  data->d_buf = calloc(data->d_size, sizeof(T));
+  if constexpr (alignment != 0) {
+    data->d_align = alignment;
+  } else {
+    data->d_align = alignof(T);
+  }
+  data->d_off = offset;
+  copy(data->d_buf);
+  return offset;
+}
 
 struct relocatable_t {
   uint32_t symbol_index{};

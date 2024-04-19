@@ -171,6 +171,10 @@ std::string_view ObjectFile::get_section_name(uint32_t index) {
 }
 
 namespace {
+struct buffer {
+  std::basic_string<uint8_t> b;
+};
+
 struct exception_sections {
   Elf_Data *frame_sections;
   buffer frame_relocations;
