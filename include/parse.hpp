@@ -10,6 +10,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -37,7 +38,9 @@ struct buffer {
 
 struct ObjectFile {
   // takes ownership of file
-  ObjectFile(int file_desc, std::string name);
+  explicit ObjectFile(int file_desc);
+  // .shstrtab is always appended to sh_strings
+  explicit ObjectFile(int file_desc, std::string_view sh_strings);
   ObjectFile(ObjectFile &&o) : file_desc(o.file_desc), elf(o.elf) {
     o.file_desc = 0;
     o.elf = nullptr;
@@ -49,21 +52,12 @@ struct ObjectFile {
 
   int file_desc{};
   Elf *elf{};
-  size_t strtab_index{}, symtab_index{}, sh_strtab_index;
-  std::string name;
+  size_t strtab_index{}, symtab_index{}, sh_strtab_index{};
 
   std::string_view get_str(uint32_t offset);
   Elf32_Sym &get_sym(uint32_t index);
   std::string_view get_section_name(uint32_t section_index);
-
-private:
-  struct GlobalInitializer {
-    static GlobalInitializer &init();
-    Elf *open_elf(int file_desc);
-
-  private:
-    GlobalInitializer();
-  };
+  uint32_t get_section_offset(std::string_view name);
 };
 
 struct relocatable_t {
@@ -121,4 +115,4 @@ unwind_info parse_cfi(std::span<const uint8_t> cfi_initial,
 
 std::vector<frame> parse_object(ObjectFile &);
 
-void write_fae(ObjectFile &, std::span<frame>);
+void write_fae(ObjectFile &, std::span<frame>, std::string_view filename);

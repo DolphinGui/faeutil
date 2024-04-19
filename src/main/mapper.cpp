@@ -4,6 +4,7 @@
 #include "read_fae.hpp"
 #include <algorithm>
 #include <cassert>
+#include <concat_str.hpp>
 #include <cstdio>
 #include <libelf.h>
 #include <map>
@@ -36,9 +37,6 @@ size_t get_symbols(ObjectFile &o) {
   return 0;
 }
 
-std::string_view get_symbol_name(ObjectFile &o, uint32_t index) {
-  return elf_strptr(o.elf, o.strtab_index, o.get_sym(index).st_name);
-}
 struct Range {
   size_t begin{}, end{};
   uint32_t begin_sym{}, end_sym{};
@@ -52,7 +50,7 @@ using addr_space = std::map<std::string_view, std::vector<Range>>;
 void read_file(std::string_view path, addr_space &output) {
   auto f = fopen(path.data(), "r+");
   auto guard = sg::make_scope_guard([&]() { fclose(f); });
-  auto o = ObjectFile(fileno_unlocked(f), std::string(path));
+  auto o = ObjectFile(fileno_unlocked(f));
 
   auto &info = fae::read_info(o);
   if (info.length == 0) {
@@ -63,7 +61,6 @@ void read_file(std::string_view path, addr_space &output) {
   for (auto &entry : data) {
     auto begin = o.get_sym(entry.begin_pc_symbol);
     auto range = o.get_sym(entry.range_pc_symbol);
-    fmt::println("range {}", entry.range);
     auto &section = output[o.get_section_name(begin.st_shndx)];
     section.push_back(Range{begin.st_value + entry.begin, range.st_value,
                             entry.begin_pc_symbol, entry.range_pc_symbol,
@@ -98,20 +95,29 @@ void relocate_range(std::span<Range> ranges) {
     last_end = range.end;
   }
 }
-
+using namespace std::string_view_literals;
+constexpr std::string_view a = ".strtab\0"sv, b = ".symtab\0"sv,
+                           c = "fae_table\0"sv;
+constexpr auto n = join_v<a, b, c>;
+constexpr std::string_view sh_strtab = join_v<a, b, c>;
 } // namespace
 
 int main(int argc, char **argv) {
   assert(argc > 1);
   addr_space text_sections;
   for (int i = 1; i != argc; ++i) {
-    fmt::println("file: {}", argv[i]);
     assert(ctre::match<R"(.+(:?\.o|\.elf))">(argv[i]));
     read_file(argv[i], text_sections);
   }
 
   auto text = merge_text(std::move(text_sections));
 
+  relocate_range(text);
+
+  auto f = fopen("map.o", "w");
+  auto output = ObjectFile(fileno_unlocked(f), sh_strtab);
+  fmt::println("result: {}", output.get_section_offset("fae_table"));
+  elf_update(output.elf, Elf_Cmd::ELF_C_WRITE);
   for (auto &range : text) {
     fmt::println("{}, {}, {}, {}", range.begin, range.end, range.offset,
                  range.length);

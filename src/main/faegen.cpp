@@ -11,8 +11,8 @@ int main(int argc, char **argv) {
 
   auto f = fopen(argv[1], "r+");
   auto guard = sg::make_scope_guard([&]() { fclose(f); });
-  auto o = ObjectFile(fileno_unlocked(f), argv[1]);
+  auto o = ObjectFile(fileno_unlocked(f));
 
   auto frames = parse_object(o);
-  write_fae(o, frames);
+  write_fae(o, frames, argv[1]);
 }

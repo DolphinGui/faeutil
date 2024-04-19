@@ -130,11 +130,12 @@ std::pair<size_t, size_t> append_section_names(ObjectFile &o) {
   return {offset, offset + 13};
 }
 
-void create_entry_symbol(ObjectFile &o, size_t entry_section_index) {
+void create_entry_symbol(ObjectFile &o, size_t entry_section_index,
+                         std::string_view filename) {
   auto str_table = elf_getscn(o.elf, o.strtab_index);
   auto size = get_scn_size(str_table);
 
-  std::string sym_name = '.' + o.name + "_fae_frames";
+  std::string sym_name = '.' + std::string(filename) + "_fae_frames";
   write_section(o, o.strtab_index,
                 std::span{sym_name.c_str(), sym_name.size() + 1});
 
@@ -215,7 +216,8 @@ void create_info_section(ObjectFile &o, size_t entry_name_offset,
 }
 } // namespace
 
-void write_fae(ObjectFile &o, std::span<frame> frames) {
+void write_fae(ObjectFile &o, std::span<frame> frames,
+               std::string_view filename) {
   // todo: determine size of return address via mcu architecture
   // some avrs use sp registers 3 bytes large
   auto entries =
@@ -224,7 +226,7 @@ void write_fae(ObjectFile &o, std::span<frame> frames) {
   auto [entries_offset, info_offset] = append_section_names(o);
   auto entries_index = create_entries_section(o, entries_offset, entries);
   create_info_section(o, info_offset, entries);
-  create_entry_symbol(o, entries_index);
+  create_entry_symbol(o, entries_index, filename);
 
   elf_update(o.elf, Elf_Cmd::ELF_C_WRITE);
 }

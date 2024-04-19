@@ -4,9 +4,11 @@
 #include "consume.hpp"
 #include "external/ctre/ctre.hpp"
 #include "external/leb128.hpp"
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <dwarf.h>
 #include <elf.h>
 #include <elfutils/libdw.h>
@@ -17,6 +19,7 @@
 #include <optional>
 #include <span>
 #include <stdexcept>
+#include <string_view>
 #include <sysexits.h>
 
 #define CHECK(a)                                                               \
@@ -39,15 +42,36 @@
 
 #define THROW_IF(cond)                                                         \
   if (cond)                                                                    \
-  throw std::runtime_error(                                                    \
-      fmt::format("Assertion \"{}\" failed at line {}", #cond, __LINE__))
+  throw std::runtime_error(fmt::format("Assertion \"{}\" failed at {}:{}",     \
+                                       #cond, __LINE__, __FILE__))
 
-ObjectFile::ObjectFile(int file, std::string name)
-    : file_desc(file), elf(GlobalInitializer::init().open_elf(file)),
-      name(name) {
+struct GlobalInitializer {
+  static GlobalInitializer &init() {
+    static GlobalInitializer initializer = {};
+    return initializer;
+  }
+
+  Elf *open_elf(int file_desc, bool init) {
+    if (init)
+      return elf_begin(file_desc, Elf_Cmd::ELF_C_WRITE, nullptr);
+    else
+      return elf_begin(file_desc, Elf_Cmd::ELF_C_RDWR, nullptr);
+  }
+
+private:
+  GlobalInitializer() {
+    if (elf_version(EV_CURRENT) == EV_NONE)
+      errx(EX_SOFTWARE, " ELF library initialization failed : %s ",
+           elf_errmsg(-1));
+  }
+};
+
+ObjectFile::ObjectFile(int file)
+    : file_desc(file), elf(GlobalInitializer::init().open_elf(file, false)) {
   if (elf == nullptr)
     throw std::runtime_error(
         fmt::format("elf_begin() error: {}", elf_errmsg(-1)));
+
   if (kind() != ELF_K_ELF)
     throw std::runtime_error("Expected object file");
 
@@ -71,29 +95,61 @@ ObjectFile::ObjectFile(int file, std::string name)
   THROW_IF(strtab_index == 0);
 }
 
+ObjectFile::ObjectFile(int file, std::string_view sh)
+    : file_desc(file), elf(GlobalInitializer::init().open_elf(file, true)) {
+  CHECK_DECL(auto ehdr = elf32_newehdr(elf), !ehdr);
+  ehdr->e_machine = EM_AVR;
+  ehdr->e_type = ET_REL;
+  auto a =
+      std::to_array<char>({0x7f, 0x45, 0x4c, 0x46, 0x01, 0x01, 0x01, 0x00, 0x00,
+                           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
+  std::memcpy(ehdr->e_ident, a.data(), a.size());
+
+  using namespace std::string_literals;
+  std::string section_strings = "\0.shstrtab\0"s;
+  section_strings.append(sh);
+  CHECK_DECL(auto sh_strtab = elf_newscn(elf), !sh_strtab);
+  CHECK_DECL(auto str = elf_newdata(sh_strtab), !str);
+  ehdr->e_shstrndx = elf_ndxscn(sh_strtab);
+
+  str->d_size = section_strings.size() + 1;
+  str->d_buf = malloc(section_strings.size() + 1);
+  str->d_version = EV_CURRENT;
+  std::memcpy(str->d_buf, section_strings.data(), section_strings.size() + 1);
+
+  CHECK_DECL(auto header = elf32_getshdr(sh_strtab), !header);
+  header->sh_name = 1;
+  header->sh_type = SHT_STRTAB;
+  header->sh_flags = SHF_STRINGS;
+}
+
 ObjectFile::~ObjectFile() {
   elf_end(elf);
   if (file_desc)
     close(file_desc);
 }
 
-ObjectFile::GlobalInitializer::GlobalInitializer() {
-  if (elf_version(EV_CURRENT) == EV_NONE)
-    errx(EX_SOFTWARE, " ELF library initialization failed : %s ",
-         elf_errmsg(-1));
-}
-ObjectFile::GlobalInitializer &ObjectFile::GlobalInitializer::init() {
-  static ObjectFile::GlobalInitializer initializer = {};
-  return initializer;
-}
-
-Elf *ObjectFile::GlobalInitializer::open_elf(int file_desc) {
-  return elf_begin(file_desc, Elf_Cmd::ELF_C_RDWR, nullptr);
-}
-
 std::string_view ObjectFile::get_str(uint32_t offset) {
   CHECK_DECL(auto result = elf_strptr(elf, strtab_index, offset), !result);
   return result;
+}
+
+uint32_t ObjectFile::get_section_offset(std::string_view name) {
+  uint32_t offset = 0;
+  Elf_Data *data{};
+  size_t sh_index{};
+  CHECK(elf_getshdrstrndx(elf, &sh_index));
+  do {
+    data = elf_getdata(elf_getscn(elf, sh_index), data);
+    auto n =
+        std::string_view(static_cast<const char *>(data->d_buf), data->d_size);
+    auto result = n.find(name);
+    if (result != static_cast<size_t>(-1)) {
+      return offset + result;
+    }
+    offset += data->d_size;
+  } while (data != nullptr);
+  return 0;
 }
 
 Elf32_Sym &ObjectFile::get_sym(uint32_t index) {
