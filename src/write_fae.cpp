@@ -1,3 +1,4 @@
+#include "external/ctre/ctre.hpp"
 #include "fae.hpp"
 #include "parse.hpp"
 #include <algorithm>
@@ -97,7 +98,32 @@ void create_entry_symbol(ObjectFile &o, size_t entry_section_index,
   entry_symbol.st_shndx = entry_section_index;
   entry_symbol.st_value = 0;
   entry_symbol.st_info = ELF32_ST_INFO(STB_GLOBAL, STT_OBJECT);
-  write_section(o, o.symtab_index, std::span<const Elf32_Sym>{{entry_symbol}});
+  write_section(o, o.symtab_index,
+                std::span<const Elf32_Sym, 1>{{entry_symbol}});
+}
+
+void create_text_symbol(ObjectFile &o, std::string_view filename) {
+  elf_update(o.elf, ELF_C_NULL);
+  auto max = o.get_section_number();
+  auto is_text = ctre::match<R"(\.text.*)">;
+  for (size_t index = 1; index != max; index++) {
+    auto n = o.get_section_name(index);
+    if (is_text(n)) {
+      std::string sym_name = ('.' + std::string(filename) + ".begin")
+                                 .append(o.get_section_name(index));
+      write_section(o, o.strtab_index,
+                    std::span{sym_name.c_str(), sym_name.size() + 1});
+      elf_update(o.elf, ELF_C_NULL);
+
+      Elf32_Sym entry_symbol{};
+      entry_symbol.st_name = o.get_str_offset(sym_name);
+      entry_symbol.st_shndx = index;
+      entry_symbol.st_value = 0;
+      entry_symbol.st_info = ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE);
+      write_section(o, o.symtab_index,
+                    std::span<const Elf32_Sym>{{entry_symbol}});
+    }
+  }
 }
 
 size_t create_entries_section(ObjectFile &o, size_t entry_name_offset,
@@ -180,6 +206,7 @@ void write_fae(ObjectFile &o, std::span<frame> frames,
   auto entries_index = create_entries_section(o, entries_offset, entries);
   create_info_section(o, info_offset, entries);
   create_entry_symbol(o, entries_index, filename);
+  create_text_symbol(o, filename);
 
   elf_update(o.elf, Elf_Cmd::ELF_C_WRITE);
 }

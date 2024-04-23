@@ -4,6 +4,7 @@
 #include "consume.hpp"
 #include "external/ctre/ctre.hpp"
 #include "external/leb128.hpp"
+#include "macros.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -21,29 +22,6 @@
 #include <stdexcept>
 #include <string_view>
 #include <sysexits.h>
-
-#define CHECK(a)                                                               \
-  if (auto error_code = a)                                                     \
-  throw std::runtime_error(                                                    \
-      fmt::format("Error at {}: {}", __LINE__, elf_errmsg(error_code)))
-
-#define IF_PTR(a)                                                              \
-  if (a) {                                                                     \
-    throw std::runtime_error(fmt::format("IF_PTR failed at line {}: {}",       \
-                                         __LINE__, elf_errmsg(elf_errno())));  \
-  } else
-
-#define CHECK_DECL(a, cond)                                                    \
-  a;                                                                           \
-  if (cond)                                                                    \
-  throw std::runtime_error(fmt::format("CHECK_DECL failed at {}:{}: {}",       \
-                                       __LINE__, __FILE__,                     \
-                                       elf_errmsg(elf_errno())))
-
-#define THROW_IF(cond)                                                         \
-  if (cond)                                                                    \
-  throw std::runtime_error(fmt::format("Assertion \"{}\" failed at {}:{}",     \
-                                       #cond, __LINE__, __FILE__))
 
 struct GlobalInitializer {
   static GlobalInitializer &init() {
@@ -100,6 +78,7 @@ ObjectFile::ObjectFile(int file, std::string_view sh)
   CHECK_DECL(auto ehdr = elf32_newehdr(elf), !ehdr);
   ehdr->e_machine = EM_AVR;
   ehdr->e_type = ET_REL;
+  ehdr->e_version = EV_CURRENT;
   auto a =
       std::to_array<char>({0x7f, 0x45, 0x4c, 0x46, 0x01, 0x01, 0x01, 0x00, 0x00,
                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
@@ -111,6 +90,7 @@ ObjectFile::ObjectFile(int file, std::string_view sh)
   CHECK_DECL(auto sh_strtab = elf_newscn(elf), !sh_strtab);
   CHECK_DECL(auto str = elf_newdata(sh_strtab), !str);
   ehdr->e_shstrndx = elf_ndxscn(sh_strtab);
+  sh_strtab_index = elf_ndxscn(sh_strtab);
 
   str->d_size = section_strings.size() + 1;
   str->d_buf = malloc(section_strings.size() + 1);
@@ -121,6 +101,7 @@ ObjectFile::ObjectFile(int file, std::string_view sh)
   header->sh_name = 1;
   header->sh_type = SHT_STRTAB;
   header->sh_flags = SHF_STRINGS;
+  update(elf);
 }
 
 ObjectFile::~ObjectFile() {
@@ -133,14 +114,12 @@ std::string_view ObjectFile::get_str(uint32_t offset) {
   CHECK_DECL(auto result = elf_strptr(elf, strtab_index, offset), !result);
   return result;
 }
-
-uint32_t ObjectFile::get_section_offset(std::string_view name) {
+namespace {
+uint32_t get_offset(std::string_view name, Elf *elf, uint32_t str_index) {
   uint32_t offset = 0;
   Elf_Data *data{};
-  size_t sh_index{};
-  CHECK(elf_getshdrstrndx(elf, &sh_index));
   do {
-    data = elf_getdata(elf_getscn(elf, sh_index), data);
+    data = elf_getdata(elf_getscn(elf, str_index), data);
     auto n =
         std::string_view(static_cast<const char *>(data->d_buf), data->d_size);
     auto result = n.find(name);
@@ -150,6 +129,49 @@ uint32_t ObjectFile::get_section_offset(std::string_view name) {
     offset += data->d_size;
   } while (data != nullptr);
   return 0;
+}
+} // namespace
+uint32_t ObjectFile::get_section_offset(std::string_view name) {
+  size_t sh_index{};
+  CHECK(elf_getshdrstrndx(elf, &sh_index));
+  return get_offset(name, elf, sh_index);
+}
+
+uint32_t ObjectFile::get_str_offset(std::string_view name) {
+  return get_offset(name, elf, strtab_index);
+}
+
+uint32_t ObjectFile::make_section(Elf32_Shdr header) {
+  CHECK_DECL(Elf_Scn *scn = elf_newscn(elf), !scn);
+  CHECK_DECL(Elf32_Shdr *h = elf32_getshdr(scn), !h);
+  *h = header;
+  uint32_t index = elf_ndxscn(scn);
+  CHECK(elf_errno());
+  return index;
+}
+
+uint32_t ObjectFile::find_index(std::string_view name) {
+  size_t section_max{};
+  CHECK(elf_getshdrnum(elf, &section_max));
+  for (size_t i = 1; i != section_max; i++) {
+    CHECK_DECL(Elf_Scn *section = elf_getscn(elf, i), !section);
+    CHECK_DECL(Elf32_Shdr *header = elf32_getshdr(section), !header);
+    CHECK_DECL(auto section_name =
+                   elf_strptr(elf, sh_strtab_index, header->sh_name),
+               !section_name);
+    if (section_name == name)
+      return i;
+  }
+  throw std::out_of_range("Section not found!");
+}
+
+tl::generator<Elf_Scn *> ObjectFile::iterate_sections() {
+  size_t section_max{};
+  CHECK(elf_getshdrnum(elf, &section_max));
+  for (size_t i = 1; i != section_max; i++) {
+    CHECK_DECL(Elf_Scn *section = elf_getscn(elf, i), !section);
+    co_yield section;
+  }
 }
 
 Elf32_Sym &ObjectFile::get_sym(uint32_t index) {
@@ -162,12 +184,19 @@ Elf32_Sym &ObjectFile::get_sym(uint32_t index) {
   THROW_IF(index >= data->d_size / sizeof(Elf32_Sym));
   return static_cast<Elf32_Sym *>(data->d_buf)[index];
 }
+
 std::string_view ObjectFile::get_section_name(uint32_t index) {
   CHECK_DECL(auto section = elf_getscn(elf, index), !section);
   CHECK_DECL(auto header = elf32_getshdr(section), !header);
   CHECK_DECL(auto result = elf_strptr(elf, sh_strtab_index, header->sh_name),
              !result);
   return result;
+}
+
+uint32_t ObjectFile::get_section_number() {
+  size_t section_max{};
+  CHECK(elf_getshdrnum(elf, &section_max));
+  return section_max;
 }
 
 namespace {

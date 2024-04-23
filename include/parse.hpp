@@ -2,14 +2,19 @@
 
 #include "avr_reloc.hpp"
 #include "consume.hpp"
+#include "subprojects/range-v3-0.12.0/test/test_iterators.hpp"
 
+#include <algorithm>
+#include <concepts>
 #include <cstdint>
+#include <elf.h>
+#include <external/generator.hpp>
 #include <functional>
 #include <libelf.h>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <stdexcept>
-#include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
@@ -36,13 +41,18 @@ struct ObjectFile {
   Elf32_Sym &get_sym(uint32_t index);
   std::string_view get_section_name(uint32_t section_index);
   uint32_t get_section_offset(std::string_view name);
+  uint32_t get_str_offset(std::string_view name);
+  uint32_t find_index(std::string_view name);
+  uint32_t make_section(Elf32_Shdr);
+  uint32_t get_section_number();
+  tl::generator<Elf_Scn *> iterate_sections();
 };
 
 inline size_t get_scn_size(Elf_Scn *section) noexcept {
   Elf_Data *data{};
   size_t total{};
   while (true) {
-    data = elf_getdata(section, data);
+    data = elf_rawdata(section, data);
     if (!data)
       break;
     total += data->d_size;
@@ -50,36 +60,38 @@ inline size_t get_scn_size(Elf_Scn *section) noexcept {
   return total;
 }
 
-template <typename T, size_t alignment = 0, size_t extent>
-size_t write_section(ObjectFile &o, size_t index,
-                     std::span<const T, extent> input) {
-  auto section = elf_getscn(o.elf, index);
+template <Elf_Type type = ELF_T_BYTE, std::ranges::range Input,
+          size_t alignment = alignof(std::ranges::range_value_t<Input>)>
+size_t write_section(Elf_Scn *section, Input input, size_t length) {
   auto offset = get_scn_size(section);
   auto data = elf_newdata(section);
-  data->d_size = input.size_bytes();
-  data->d_buf = calloc(input.size(), sizeof(T));
-  if constexpr (alignment != 0) {
-    data->d_align = alignment;
-  } else {
-    data->d_align = alignof(T);
-  }
+  data->d_type = type;
+  data->d_size = length * sizeof(std::ranges::range_value_t<Input>);
+  data->d_buf = calloc(length, sizeof(std::ranges::range_value_t<Input>));
+  data->d_align = alignof(std::ranges::range_value_t<Input>);
   data->d_off = offset;
-  std::memcpy(data->d_buf, input.data(), input.size_bytes());
-  return offset;
+  std::ranges::copy(
+      input,
+      reinterpret_cast<std::ranges::range_value_t<Input> *>(data->d_buf));
+  return 0;
 }
 
-template <typename T, size_t alignment = 0>
-size_t write_section(ObjectFile &o, size_t index, auto copy, size_t bytes) {
+template <Elf_Type type = ELF_T_BYTE, std::ranges::sized_range Input,
+          size_t alignment = alignof(std::ranges::range_value_t<Input>)>
+size_t write_section(ObjectFile &o, size_t index, Input input) {
+  auto section = elf_getscn(o.elf, index);
+  return write_section<type, Input, alignment>(section, input, input.size());
+}
+
+template <typename T, size_t alignment = alignof(T)>
+size_t write_section(ObjectFile &o, size_t index,
+                     std::regular_invocable auto copy, size_t bytes) {
   auto section = elf_getscn(o.elf, index);
   auto offset = get_scn_size(section);
   auto data = elf_newdata(section);
   data->d_size = bytes;
   data->d_buf = calloc(data->d_size, sizeof(T));
-  if constexpr (alignment != 0) {
-    data->d_align = alignment;
-  } else {
-    data->d_align = alignof(T);
-  }
+  data->d_align = alignment;
   data->d_off = offset;
   copy(data->d_buf);
   return offset;
