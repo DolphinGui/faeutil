@@ -60,14 +60,14 @@ inline size_t get_scn_size(Elf_Scn *section) noexcept {
   return total;
 }
 
-template <Elf_Type type = ELF_T_BYTE, std::ranges::range Input,
+template <Elf_Type type = ELF_T_BYTE, std::ranges::sized_range Input,
           size_t alignment = alignof(std::ranges::range_value_t<Input>)>
-size_t write_section(Elf_Scn *section, Input input, size_t length) {
+size_t write_section(Elf_Scn *section, Input input) {
   auto offset = get_scn_size(section);
   auto data = elf_newdata(section);
   data->d_type = type;
-  data->d_size = length * sizeof(std::ranges::range_value_t<Input>);
-  data->d_buf = calloc(length, sizeof(std::ranges::range_value_t<Input>));
+  data->d_size = input.size() * sizeof(std::ranges::range_value_t<Input>);
+  data->d_buf = calloc(input.size(), sizeof(std::ranges::range_value_t<Input>));
   data->d_align = alignof(std::ranges::range_value_t<Input>);
   data->d_off = offset;
   std::ranges::copy(
@@ -79,22 +79,7 @@ size_t write_section(Elf_Scn *section, Input input, size_t length) {
 template <Elf_Type type = ELF_T_BYTE, std::ranges::sized_range Input,
           size_t alignment = alignof(std::ranges::range_value_t<Input>)>
 size_t write_section(ObjectFile &o, size_t index, Input input) {
-  auto section = elf_getscn(o.elf, index);
-  return write_section<type, Input, alignment>(section, input, input.size());
-}
-
-template <typename T, size_t alignment = alignof(T)>
-size_t write_section(ObjectFile &o, size_t index,
-                     std::regular_invocable auto copy, size_t bytes) {
-  auto section = elf_getscn(o.elf, index);
-  auto offset = get_scn_size(section);
-  auto data = elf_newdata(section);
-  data->d_size = bytes;
-  data->d_buf = calloc(data->d_size, sizeof(T));
-  data->d_align = alignment;
-  data->d_off = offset;
-  copy(data->d_buf);
-  return offset;
+  return write_section(elf_getscn(o.elf, index), input);
 }
 
 struct relocatable_t {

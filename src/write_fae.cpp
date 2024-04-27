@@ -153,46 +153,31 @@ size_t create_entries_section(ObjectFile &o, size_t entry_name_offset,
 }
 
 void create_info_section(ObjectFile &o, size_t entry_name_offset,
-                         std::ranges::range auto entries) {
+                         std::ranges::sized_range auto entries) {
   auto section = elf_newscn(o.elf);
   auto header = elf32_getshdr(section);
   header->sh_type = 0x81100000;
   header->sh_name = entry_name_offset;
 
-  auto data = elf_newdata(section);
-  data->d_type = ELF_T_BYTE;
-  data->d_align = 4;
-  data->d_size = sizeof(fae::info) + entries.size() * sizeof(fae::info::entry);
-  data->d_buf = std::aligned_alloc(4, data->d_size);
-  char *ptr = static_cast<char *>(data->d_buf);
   fae::info info_header{.length = static_cast<uint32_t>(
                             entries.size() * sizeof(fae::info::entry))};
-  std::memcpy(ptr, &info_header, sizeof(info_header));
-  ptr += sizeof(info_header);
-
-  uint32_t offset{};
-  for (auto &&entry : entries) {
-    uint32_t off = offset;
-    if (entry.instructions.empty()) {
-      off = -1;
-    }
-    fae::info::entry e{.offset = off,
-                       .length =
-                           static_cast<uint32_t>(entry.instructions.size()),
-                       .begin = entry.begin->default_value,
-                       .begin_pc_symbol = entry.begin->symbol_index,
-                       .range = entry.range->default_value,
-                       .range_pc_symbol = entry.range->symbol_index,
-                       .cfa_reg = entry.cfa_reg};
-    if (entry.lsda) {
-      e.lsda_symbol = entry.lsda->symbol_index;
-    } else {
-      e.lsda_symbol = 0xffffffff;
-    }
-    std::memcpy(ptr, &e, sizeof(e));
-    ptr += sizeof(e);
-    offset += static_cast<uint32_t>(entry.instructions.size());
-  }
+  write_section(section, std::array{info_header});
+  uint32_t offset = 0;
+  write_section(
+      section,
+      entries | vs::transform([&](entry_info &&entry) {
+        fae::info::entry e{
+            .offset = entry.instructions.empty() ? -1 : offset,
+            .length = static_cast<uint32_t>(entry.instructions.size()),
+            .begin = entry.begin->default_value,
+            .begin_pc_symbol = entry.begin->symbol_index,
+            .range = entry.range->default_value,
+            .range_pc_symbol = entry.range->symbol_index,
+            .lsda_symbol = !entry.lsda ? 0xffffffff : entry.lsda->symbol_index,
+            .cfa_reg = entry.cfa_reg};
+        offset += static_cast<uint32_t>(entry.instructions.size());
+        return e;
+      }));
 }
 } // namespace
 
