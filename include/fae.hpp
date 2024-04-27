@@ -28,6 +28,8 @@ struct header {
 struct table_entry {
   uint16_t pc_begin;
   uint16_t pc_end;
+  uint16_t data;
+  uint16_t length;
   uint16_t lsda;
 };
 /* Entries are aligned by 2 so that personality_ptr
@@ -135,13 +137,6 @@ union frame_inst {
   constexpr frame_inst(pop p) : p(p) {}
   constexpr bool is_pop() const noexcept { return byte & 0b1000'0000; }
   constexpr bool is_skip() const noexcept { return !is_pop(); }
-};
-
-struct info_entry {
-  uint32_t entry_offset;
-  uint32_t entry_length;
-  uint32_t begin_pc_symbol;
-  uint32_t range_pc_symbol;
 };
 
 } // namespace fae

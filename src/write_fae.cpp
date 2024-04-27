@@ -145,7 +145,8 @@ size_t create_entries_section(ObjectFile &o, size_t entry_name_offset,
   data->d_buf = std::aligned_alloc(2, data->d_size);
   auto ptr = static_cast<uint8_t *>(data->d_buf);
   for (auto &&entry : entries) {
-    std::memcpy(ptr, entry.instructions.data(), entry.instructions.size());
+    if (!entry.instructions.empty())
+      std::memcpy(ptr, entry.instructions.data(), entry.instructions.size());
     ptr += entry.instructions.size();
   }
   return elf_ndxscn(section);

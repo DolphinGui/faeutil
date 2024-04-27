@@ -1,5 +1,7 @@
 #!/usr/bin/bash
 
+set -ex
+
 objects=()
 sources=()
 for arg in "$@"
@@ -13,12 +15,13 @@ done
 obj_count="${#objects[@]}"
 src_count="${#sources[@]}"
 
-avr-g++ $@
 
 if (( obj_count > 1 )); then
+  faemap "${objects[@]}"
+  avr-g++ $@ __faemap.o
+else
 
-  echo "link mode"
-  else
+  avr-g++ $@
 
   if (( obj_count == 0)); then
     for src in "${sources[@]}"; do

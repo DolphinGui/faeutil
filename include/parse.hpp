@@ -73,7 +73,7 @@ size_t write_section(Elf_Scn *section, Input input, size_t length) {
   std::ranges::copy(
       input,
       reinterpret_cast<std::ranges::range_value_t<Input> *>(data->d_buf));
-  return 0;
+  return offset;
 }
 
 template <Elf_Type type = ELF_T_BYTE, std::ranges::sized_range Input,
