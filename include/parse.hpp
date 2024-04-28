@@ -128,7 +128,7 @@ struct unwind_info {
 };
 
 struct frame {
-  std::optional<relocatable_t *> begin, range, lsda;
+  relocatable_t *begin{}, *range{}, *lsda{};
   unwind_info frame;
 };
 

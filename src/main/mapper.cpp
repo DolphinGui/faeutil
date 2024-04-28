@@ -160,8 +160,6 @@ tl::generator<const Elf32_Rela> generate_rela(uint32_t offset, Range &range,
       std::distance(symbols.begin(),
                     std::ranges::find(symbols, range.symbol_name)) +
       2;
-  fmt::println("[{:#x}; {:#x}]", static_cast<Elf32_Sword>(range.begin),
-               static_cast<Elf32_Sword>(range.end));
   co_yield Elf32_Rela{
       static_cast<Elf32_Addr>(offset + offsetof(fae::table_entry, pc_begin)),
       ELF32_R_INFO(symbol_index, avr::R_AVR_16),

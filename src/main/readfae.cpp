@@ -29,19 +29,19 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  auto inst = fae::get_inst(o);
+  // auto inst = fae::get_inst(o);
   for (size_t i = 0; i != info.length / sizeof(info.data[0]); ++i) {
     auto &entry = info.data[i];
     fmt::println("Entry {}: {} bytes at {}, pc: {}, {}", i, entry.length,
-                 entry.offset, get_symbol_name(o, entry.begin_pc_symbol),
-                 get_symbol_name(o, entry.range_pc_symbol));
-    for (auto i = inst + entry.offset; i != inst + entry.length + entry.offset;
-         i++) {
-      if (i->is_pop()) {
-        fmt::println("  pop r{}", fae::denumerate(i->p.get_reg()));
-      } else {
-        fmt::println("  skip {} bytes", (i->s.bytes));
-      }
-    }
+                 entry.offset, entry.begin, entry.range);
+    // for (auto i = inst + entry.offset; i != inst + entry.length +
+    // entry.offset;
+    //      i++) {
+    //   if (i->is_pop()) {
+    //     fmt::println("  pop r{}", fae::denumerate(i->p.get_reg()));
+    //   } else {
+    //     fmt::println("  skip {} bytes", (i->s.bytes));
+    //   }
+    // }
   }
 }

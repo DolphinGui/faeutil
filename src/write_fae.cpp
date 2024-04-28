@@ -1,3 +1,4 @@
+#include "avr_reloc.hpp"
 #include "concat_str.hpp"
 #include "external/ctre/ctre.hpp"
 #include "fae.hpp"
@@ -11,11 +12,13 @@
 #include <elf.h>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
+#include <iterator>
 #include <libelf.h>
 #include <numeric>
 #include <range/v3/range/conversion.hpp>
 #include <ranges>
 #include <span>
+#include <stdexcept>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -43,12 +46,12 @@ entry_info create_entry(frame &f, uint8_t ret_size) {
     }
   }
 
+  if (!f.begin || !f.range) {
+    throw std::runtime_error("failed to parse begin or range!");
+  }
+
   if (f.frame.cfa_offset == 0 || offsets.empty()) {
-    return {f.begin.value(),
-            f.range.value(),
-            f.lsda.value_or(nullptr),
-            f.frame.cfa_register,
-            {}};
+    return {f.begin, f.range, f.lsda, f.frame.cfa_register, {}};
   }
 
   std::ranges::sort(offsets, {}, [](auto &o) { return o.offset; });
@@ -73,8 +76,7 @@ entry_info create_entry(frame &f, uint8_t ret_size) {
     entry.push_back(fae::skip(0));
   }
 
-  return {f.begin.value(), f.range.value(), f.lsda.value_or(nullptr),
-          f.frame.cfa_register, std::move(entry)};
+  return {f.begin, f.range, f.lsda, f.frame.cfa_register, std::move(entry)};
 }
 using namespace std::string_view_literals;
 constexpr auto a = ".fae_entries\0"sv, b = ".fae_info\0"sv,
@@ -149,12 +151,13 @@ size_t create_entries_section(ObjectFile &o, size_t name_offset,
   return elf_ndxscn(section);
 }
 
-void create_info_section(ObjectFile &o, size_t name_offset,
-                         std::ranges::sized_range auto entries) {
+uint32_t create_info_section(ObjectFile &o, size_t name_offset,
+                             std::ranges::sized_range auto entries) {
   auto section = elf_newscn(o.elf);
   auto header = elf32_getshdr(section);
   header->sh_type = 0x81100000;
   header->sh_name = name_offset + section_names.find(".fae_info");
+  header->sh_flags = SHF_GNU_RETAIN;
 
   fae::info info_header{.length = static_cast<uint32_t>(
                             entries.size() * sizeof(fae::info::entry))};
@@ -169,12 +172,52 @@ void create_info_section(ObjectFile &o, size_t name_offset,
             .begin = entry.begin->default_value,
             .begin_pc_symbol = entry.begin->symbol_index,
             .range = entry.range->default_value,
-            .range_pc_symbol = entry.range->symbol_index,
+            .range_pc_symbol = entry.range->default_value,
             .lsda_symbol = !entry.lsda ? 0xffffffff : entry.lsda->symbol_index,
             .cfa_reg = entry.cfa_reg};
         offset += static_cast<uint32_t>(entry.instructions.size());
         return e;
       }));
+  return elf_ndxscn(section);
+}
+
+tl::generator<const Elf32_Rela> generate_rela(uint32_t offset,
+                                              entry_info info) {
+  fmt::println("symbol {}, {}", info.begin->symbol_index,
+               info.range->symbol_index);
+  co_yield Elf32_Rela{
+      static_cast<Elf32_Addr>(offset + offsetof(fae::info::entry, begin)),
+      ELF32_R_INFO(info.begin->symbol_index, avr::R_AVR_32), 0};
+  co_yield Elf32_Rela{
+      static_cast<Elf32_Addr>(offset + offsetof(fae::info::entry, range)),
+      ELF32_R_INFO(info.range->symbol_index, avr::R_AVR_DIFF32), 0};
+}
+
+void create_rela(ObjectFile &o, size_t name_offset, uint32_t info_index,
+                 std::ranges::sized_range auto entries) {
+  Elf32_Shdr header{};
+  header.sh_type = SHT_RELA;
+  header.sh_name = name_offset + section_names.find(".rela.fae_info");
+  header.sh_flags = SHF_INFO_LINK;
+  header.sh_link = o.find_index(".symtab");
+  header.sh_info = info_index;
+  auto section = o.make_section(header);
+
+  auto n = entries | std::views::enumerate |
+           std::views::transform([&](auto &&pair) {
+             auto &&[index, info] = pair;
+             return generate_rela(
+                 index * sizeof(fae::info::entry) + sizeof(fae::info), info);
+           }) |
+           std::views::join;
+
+  std::vector<Elf32_Rela> relocations;
+  relocations.reserve(entries.size() * 2);
+  std::ranges::copy(n, std::back_inserter(relocations));
+  for (auto &r : relocations) {
+    fmt::println("symbol: {}", ELF32_R_SYM(r.r_info));
+  }
+  write_section(o, section, relocations);
 }
 } // namespace
 
@@ -187,9 +230,10 @@ void write_fae(ObjectFile &o, std::span<frame> frames,
 
   auto offset = write_section(o, o.sh_strtab_index, section_names);
   auto entries_index = create_entries_section(o, offset, entries);
-  create_info_section(o, offset, entries);
+  auto info = create_info_section(o, offset, entries);
   create_entry_symbol(o, entries_index, filename);
   create_text_symbol(o, filename);
+  create_rela(o, offset, info, entries);
 
   elf_update(o.elf, Elf_Cmd::ELF_C_WRITE);
 }
