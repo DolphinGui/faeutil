@@ -1,3 +1,4 @@
+#include "concat_str.hpp"
 #include "external/ctre/ctre.hpp"
 #include "fae.hpp"
 #include "parse.hpp"
@@ -75,14 +76,10 @@ entry_info create_entry(frame &f, uint8_t ret_size) {
   return {f.begin.value(), f.range.value(), f.lsda.value_or(nullptr),
           f.frame.cfa_register, std::move(entry)};
 }
-
-std::pair<size_t, size_t> append_section_names(ObjectFile &o) {
-  constexpr char name_data[] = {'.', 'f', 'a', 'e', '_', 'e', 'n', 't',
-                                'r', 'i', 'e', 's', 0,   '.', 'f', 'a',
-                                'e', '_', 'i', 'n', 'f', 'o', 0};
-  auto offset = write_section(o, o.sh_strtab_index, std::span{name_data});
-  return {offset, offset + 13};
-}
+using namespace std::string_view_literals;
+constexpr auto a = ".fae_entries\0"sv, b = ".fae_info\0"sv,
+               c = ".rela.fae_info\0"sv;
+constexpr auto section_names = join_v<a, b, c>;
 
 void create_entry_symbol(ObjectFile &o, size_t entry_section_index,
                          std::string_view filename) {
@@ -126,13 +123,13 @@ void create_text_symbol(ObjectFile &o, std::string_view filename) {
   }
 }
 
-size_t create_entries_section(ObjectFile &o, size_t entry_name_offset,
+size_t create_entries_section(ObjectFile &o, size_t name_offset,
                               std::ranges::range auto entries) {
   auto section = elf_newscn(o.elf);
   auto header = elf32_getshdr(section);
   header->sh_type = SHT_PROGBITS;
   header->sh_flags |= SHF_ALLOC;
-  header->sh_name = entry_name_offset;
+  header->sh_name = name_offset + section_names.find(".fae_entries");
 
   auto sizes =
       entries | vs::transform([](auto &&e) { return e.instructions.size(); });
@@ -152,12 +149,12 @@ size_t create_entries_section(ObjectFile &o, size_t entry_name_offset,
   return elf_ndxscn(section);
 }
 
-void create_info_section(ObjectFile &o, size_t entry_name_offset,
+void create_info_section(ObjectFile &o, size_t name_offset,
                          std::ranges::sized_range auto entries) {
   auto section = elf_newscn(o.elf);
   auto header = elf32_getshdr(section);
   header->sh_type = 0x81100000;
-  header->sh_name = entry_name_offset;
+  header->sh_name = name_offset + section_names.find(".fae_info");
 
   fae::info info_header{.length = static_cast<uint32_t>(
                             entries.size() * sizeof(fae::info::entry))};
@@ -188,9 +185,9 @@ void write_fae(ObjectFile &o, std::span<frame> frames,
   auto entries =
       frames | vs::transform([](auto &f) { return create_entry(f, 2); });
 
-  auto [entries_offset, info_offset] = append_section_names(o);
-  auto entries_index = create_entries_section(o, entries_offset, entries);
-  create_info_section(o, info_offset, entries);
+  auto offset = write_section(o, o.sh_strtab_index, section_names);
+  auto entries_index = create_entries_section(o, offset, entries);
+  create_info_section(o, offset, entries);
   create_entry_symbol(o, entries_index, filename);
   create_text_symbol(o, filename);
 
