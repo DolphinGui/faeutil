@@ -38,17 +38,7 @@ struct Range {
 
 using addr_space = std::map<std::string_view, std::vector<Range>>;
 
-std::vector<fae::frame_inst> get_inst(ObjectFile &output) {
-  auto index = output.find_index(".fae_entries");
-  std::vector<fae::frame_inst> result;
-  Elf_Data *data = nullptr;
-  do {
-    data = elf_getdata(elf_getscn(output.elf, index), data);
-    // result.reserve(result.size() + result)
-  } while (data != nullptr);
-}
-
-void write_table(ObjectFile &output, std::vector<fae::info_entry> info) {}
+// void write_table(ObjectFile &output, std::vector<fae::info_entry> info) {}
 
 } // namespace
 
@@ -61,7 +51,7 @@ int main(int argc, char **argv) {
   auto guard = sg::make_scope_guard([&]() { fclose(f); });
   auto o = ObjectFile(fileno_unlocked(f));
 
-  write_table(o, fae::read_info(o));
+  // write_table(o, fae::read_info(o));
 
   elf_update(o.elf, Elf_Cmd::ELF_C_WRITE);
 }

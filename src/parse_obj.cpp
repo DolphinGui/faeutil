@@ -4,7 +4,6 @@
 #include "consume.hpp"
 #include "external/ctre/ctre.hpp"
 #include "external/leb128.hpp"
-#include "macros.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -22,6 +21,34 @@
 #include <stdexcept>
 #include <string_view>
 #include <sysexits.h>
+
+#define CHECK(a)                                                               \
+  do {                                                                         \
+    auto elferrnonumber = elf_errno();                                         \
+    if (a)                                                                     \
+      throw std::runtime_error(fmt::format("Error at {}:{}: {}", __LINE__,     \
+                                           __FILE__,                           \
+                                           m(elf_errmsg(elferrnonumber))));    \
+  } while (0)
+
+#define CHECK_DECL(a, cond)                                                    \
+  a;                                                                           \
+  do {                                                                         \
+    auto elferrnonumber = elf_errno();                                         \
+    if (cond)                                                                  \
+      throw std::runtime_error(fmt::format("CHECK_DECL failed at {}:{}: {}",   \
+                                           __LINE__, __FILE__,                 \
+                                           m(elf_errmsg(elferrnonumber))));    \
+  } while (0)
+
+#define THROW_IF(cond)                                                         \
+  do {                                                                         \
+    auto elferrnonumber = elf_errno();                                         \
+    if (cond)                                                                  \
+      throw std::runtime_error(                                                \
+          fmt::format("Assertion \"{}\" failed at {}:{}, {}", #cond, __LINE__, \
+                      __FILE__, m(elf_errmsg(elferrnonumber))));               \
+  } while (0)
 
 struct GlobalInitializer {
   static GlobalInitializer &init() {
@@ -163,6 +190,12 @@ uint32_t ObjectFile::find_index(std::string_view name) {
       return i;
   }
   throw std::out_of_range("Section not found!");
+}
+
+Elf_Scn *ObjectFile::find_scn(std::string_view name) {
+  auto index = find_index(name);
+  CHECK_DECL(auto scn = elf_getscn(elf, index), !scn);
+  return scn;
 }
 
 tl::generator<Elf_Scn *> ObjectFile::iterate_sections() {

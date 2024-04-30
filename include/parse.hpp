@@ -2,16 +2,13 @@
 
 #include "avr_reloc.hpp"
 #include "consume.hpp"
-#include "subprojects/range-v3-0.12.0/test/test_iterators.hpp"
 
 #include <algorithm>
-#include <concepts>
 #include <cstdint>
 #include <elf.h>
 #include <external/generator.hpp>
 #include <functional>
 #include <libelf.h>
-#include <optional>
 #include <ranges>
 #include <span>
 #include <stdexcept>
@@ -44,9 +41,12 @@ struct ObjectFile {
   std::string_view get_section_name(uint32_t section_index);
   uint32_t get_section_offset(std::string_view name);
   uint32_t get_str_offset(std::string_view name);
-  uint32_t find_index(std::string_view name);
   uint32_t make_section(Elf32_Shdr);
   uint32_t get_section_number();
+
+  uint32_t find_index(std::string_view name);
+  Elf_Scn *find_scn(std::string_view name);
+
   tl::generator<Elf_Scn *> iterate_sections();
   struct DataSentinal {};
   template <typename T> struct DataIterator {
@@ -54,30 +54,35 @@ struct ObjectFile {
     size_t index = 0;
     Elf_Scn *scn{};
     DataIterator(Elf_Data *, Elf_Scn *);
-    DataIterator(DataIterator const &) = default;
-    DataIterator(DataIterator &&) = default;
     bool operator==(DataSentinal) const noexcept;
     bool operator==(DataIterator const &) const noexcept;
-    DataIterator &operator++() noexcept;
-    DataIterator operator++(int) noexcept;
-    T &operator*() noexcept;
-    T const &operator*() const noexcept;
+    DataIterator &operator++();
+    DataIterator operator++(int);
+    T &operator*();
+    T &operator*() const;
+    using difference_type = int;
+    using value_type = T;
+    using reference_type = T &;
+    using const_reference_type = T const &;
   };
   template <typename T> struct DataRange {
-    ObjectFile &o;
     Elf_Scn *scn{};
     DataIterator<T> begin();
-    DataIterator<const T> begin() const;
+    DataIterator<const T> cbegin() const;
     DataSentinal end() const { return {}; }
   };
   template <typename T> DataRange<T> iterate_data(uint32_t index) {
     CHECK_DECL(auto scn = elf_getscn(elf, index), !scn);
-    return DataRange<T>{*this, scn};
+    return DataRange<T>{scn};
   }
   template <typename T> DataRange<T> iterate_data(Elf_Scn *scn) {
-    return DataRange<T>{*this, scn};
+    return DataRange<T>{scn};
   }
 };
+
+template <typename T>
+inline constexpr bool
+    std::ranges::enable_borrowed_range<ObjectFile::DataRange<T>> = true;
 
 inline size_t get_scn_size(Elf_Scn *section) noexcept {
   Elf_Data *data{};
@@ -174,6 +179,7 @@ void write_fae(ObjectFile &, std::span<frame>, std::string_view filename);
 template <typename T>
 ObjectFile::DataIterator<T>::DataIterator(Elf_Data *data, Elf_Scn *scn)
     : data(data), scn(scn) {}
+
 template <typename T>
 bool ObjectFile::DataIterator<T>::operator==(DataSentinal) const noexcept {
   return data == nullptr;
@@ -184,31 +190,29 @@ bool ObjectFile::DataIterator<T>::operator==(
   return data == other.data && index == other.index;
 }
 template <typename T>
-ObjectFile::DataIterator<T> &
-ObjectFile::DataIterator<T>::operator++() noexcept {
+ObjectFile::DataIterator<T> &ObjectFile::DataIterator<T>::operator++() {
   ++index;
   if (index * sizeof(T) >= data->d_size) {
     data = elf_getdata(scn, data);
     CHECK(elf_errno());
     index = 0;
   }
+  return *this;
 }
 template <typename T>
-ObjectFile::DataIterator<T>
-ObjectFile::DataIterator<T>::operator++(int) noexcept {
+ObjectFile::DataIterator<T> ObjectFile::DataIterator<T>::operator++(int) {
   auto old = *this;
   this->operator++();
   return old;
 }
-template <typename T> T &ObjectFile::DataIterator<T>::operator*() noexcept {
+template <typename T> T &ObjectFile::DataIterator<T>::operator*() {
   if (index * sizeof(T) >= data->d_size)
     throw std::runtime_error("Unexpectedly out of range");
   if (data == nullptr)
     throw std::out_of_range("Dereferenced a null data");
   return reinterpret_cast<T *>(data->d_buf)[index];
 }
-template <typename T>
-T const &ObjectFile::DataIterator<T>::operator*() const noexcept {
+template <typename T> T &ObjectFile::DataIterator<T>::operator*() const {
   if (index * sizeof(T) >= data->d_size)
     throw std::runtime_error("Unexpectedly out of range");
   if (data == nullptr)
@@ -222,7 +226,7 @@ ObjectFile::DataIterator<T> ObjectFile::DataRange<T>::begin() {
 }
 
 template <typename T>
-ObjectFile::DataIterator<const T> ObjectFile::DataRange<T>::begin() const {
+ObjectFile::DataIterator<const T> ObjectFile::DataRange<T>::cbegin() const {
   CHECK_DECL(auto data = elf_getdata(scn, nullptr), !data);
   return DataIterator<const T>(data, scn);
 }
