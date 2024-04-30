@@ -17,8 +17,8 @@ src_count="${#sources[@]}"
 
 
 if (( obj_count > 1 )); then
-  faemap "${objects[@]}"
-  avr-g++ $@ __faemap.o
+  avr-g++ $@
+  # faemap "${objects[@]}"
 else
 
   avr-g++ $@

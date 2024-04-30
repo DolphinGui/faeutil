@@ -19,6 +19,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "macros.hpp"
+
 struct ObjectFile {
   // takes ownership of file
   explicit ObjectFile(int file_desc);
@@ -46,6 +48,35 @@ struct ObjectFile {
   uint32_t make_section(Elf32_Shdr);
   uint32_t get_section_number();
   tl::generator<Elf_Scn *> iterate_sections();
+  struct DataSentinal {};
+  template <typename T> struct DataIterator {
+    Elf_Data *data{};
+    size_t index = 0;
+    Elf_Scn *scn{};
+    DataIterator(Elf_Data *, Elf_Scn *);
+    DataIterator(DataIterator const &) = default;
+    DataIterator(DataIterator &&) = default;
+    bool operator==(DataSentinal) const noexcept;
+    bool operator==(DataIterator const &) const noexcept;
+    DataIterator &operator++() noexcept;
+    DataIterator operator++(int) noexcept;
+    T &operator*() noexcept;
+    T const &operator*() const noexcept;
+  };
+  template <typename T> struct DataRange {
+    ObjectFile &o;
+    Elf_Scn *scn{};
+    DataIterator<T> begin();
+    DataIterator<const T> begin() const;
+    DataSentinal end() const { return {}; }
+  };
+  template <typename T> DataRange<T> iterate_data(uint32_t index) {
+    CHECK_DECL(auto scn = elf_getscn(elf, index), !scn);
+    return DataRange<T>{*this, scn};
+  }
+  template <typename T> DataRange<T> iterate_data(Elf_Scn *scn) {
+    return DataRange<T>{*this, scn};
+  }
 };
 
 inline size_t get_scn_size(Elf_Scn *section) noexcept {
@@ -138,3 +169,62 @@ unwind_info parse_cfi(std::span<const uint8_t> cfi_initial,
 std::vector<frame> parse_object(ObjectFile &);
 
 void write_fae(ObjectFile &, std::span<frame>, std::string_view filename);
+
+// template implementations start
+template <typename T>
+ObjectFile::DataIterator<T>::DataIterator(Elf_Data *data, Elf_Scn *scn)
+    : data(data), scn(scn) {}
+template <typename T>
+bool ObjectFile::DataIterator<T>::operator==(DataSentinal) const noexcept {
+  return data == nullptr;
+}
+template <typename T>
+bool ObjectFile::DataIterator<T>::operator==(
+    DataIterator const &other) const noexcept {
+  return data == other.data && index == other.index;
+}
+template <typename T>
+ObjectFile::DataIterator<T> &
+ObjectFile::DataIterator<T>::operator++() noexcept {
+  ++index;
+  if (index * sizeof(T) >= data->d_size) {
+    data = elf_getdata(scn, data);
+    CHECK(elf_errno());
+    index = 0;
+  }
+}
+template <typename T>
+ObjectFile::DataIterator<T>
+ObjectFile::DataIterator<T>::operator++(int) noexcept {
+  auto old = *this;
+  this->operator++();
+  return old;
+}
+template <typename T> T &ObjectFile::DataIterator<T>::operator*() noexcept {
+  if (index * sizeof(T) >= data->d_size)
+    throw std::runtime_error("Unexpectedly out of range");
+  if (data == nullptr)
+    throw std::out_of_range("Dereferenced a null data");
+  return reinterpret_cast<T *>(data->d_buf)[index];
+}
+template <typename T>
+T const &ObjectFile::DataIterator<T>::operator*() const noexcept {
+  if (index * sizeof(T) >= data->d_size)
+    throw std::runtime_error("Unexpectedly out of range");
+  if (data == nullptr)
+    throw std::out_of_range("Dereferenced a null data");
+  return reinterpret_cast<const T *>(data->d_buf)[index];
+}
+template <typename T>
+ObjectFile::DataIterator<T> ObjectFile::DataRange<T>::begin() {
+  CHECK_DECL(auto data = elf_getdata(scn, nullptr), !data);
+  return DataIterator<T>(data, scn);
+}
+
+template <typename T>
+ObjectFile::DataIterator<const T> ObjectFile::DataRange<T>::begin() const {
+  CHECK_DECL(auto data = elf_getdata(scn, nullptr), !data);
+  return DataIterator<const T>(data, scn);
+}
+
+#include "undef_macros.hpp"

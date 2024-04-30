@@ -4,7 +4,6 @@
 #include <libelf.h>
 #include <stdexcept>
 
-namespace {
 inline const char *m(const char *c) {
   if (!c)
     return "";
@@ -19,7 +18,6 @@ inline void update(Elf *e) {
     throw std::runtime_error(
         fmt::format("Error at {}: {}", __LINE__, m(elf_errmsg(err))));
 }
-} // namespace
 
 #define CHECK(a)                                                               \
   do {                                                                         \

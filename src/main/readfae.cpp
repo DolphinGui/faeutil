@@ -23,17 +23,17 @@ int main(int argc, char **argv) {
   auto f = fopen(argv[1], "r+");
   auto guard = sg::make_scope_guard([&]() { fclose(f); });
   auto o = ObjectFile(fileno_unlocked(f));
-  auto &info = fae::read_info(o);
-  if (info.length == 0) {
+  auto info = fae::read_info(o);
+  if (info.size() == 0) {
     fmt::println("No entries");
     return 0;
   }
 
   // auto inst = fae::get_inst(o);
-  for (size_t i = 0; i != info.length / sizeof(info.data[0]); ++i) {
-    auto &entry = info.data[i];
-    fmt::println("Entry {}: {} bytes at {}, pc: {}, {}", i, entry.length,
-                 entry.offset, entry.begin, entry.range);
+  uint32_t i = 0;
+  for (auto &entry : info) {
+    fmt::println("Entry {}: {} bytes at {:#0x}, pc: [{:#0x}, {:#0x}]", i++, entry.length,
+                 entry.offset, entry.begin, entry.range + entry.begin);
     // for (auto i = inst + entry.offset; i != inst + entry.length +
     // entry.offset;
     //      i++) {

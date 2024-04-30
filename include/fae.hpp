@@ -6,19 +6,15 @@
 
 namespace fae {
 
-struct info {
-  uint32_t version = 0;
-  uint32_t length; // in bytes, not including this
-  struct entry {
-    uint32_t offset;
-    uint32_t length;
-    uint32_t begin;
-    uint32_t begin_pc_symbol; // (index into symtab)
-    uint32_t range;
-    uint32_t range_pc_symbol;
-    uint32_t lsda_symbol;
-    uint32_t cfa_reg;
-  } data[];
+struct info_entry {
+  uint32_t offset;
+  uint32_t length;
+  uint32_t begin;
+  uint32_t begin_pc_symbol; // (index into symtab)
+  uint32_t range;
+  uint32_t range_pc_symbol;
+  uint32_t lsda_symbol;
+  uint32_t cfa_reg;
 };
 
 struct header {

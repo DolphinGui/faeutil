@@ -1,6 +1,9 @@
+#include "read_fae.hpp"
 #include "fae.hpp"
 #include "parse.hpp"
+#include <cstdlib>
 #include <elf.h>
+#include <iterator>
 #include <libelf.h>
 #include <stdexcept>
 
@@ -22,16 +25,23 @@ auto get_scn(ObjectFile &o, std::string_view name) {
 } // namespace
 
 namespace fae {
-fae::info &read_info(ObjectFile &o) {
+std::vector<info_entry> read_info(ObjectFile &o) {
   auto section = get_scn(o, ".fae_info");
   auto data = elf_getdata(section, nullptr);
   if (!data || elf_errno())
     throw std::runtime_error("no data associated with .fae_info");
-  fae::info &info = *static_cast<fae::info *>(data->d_buf);
-  if (info.version != 0)
-    throw std::runtime_error(fmt::format(
-        ".fae_info version mismatch: expected 0, got {}", info.version));
-  return info;
+
+  std::vector<info_entry> result;
+  while (data != nullptr) {
+    result.reserve(data->d_size / sizeof(fae::info_entry) + result.size());
+    std::ranges::copy(
+        std::span(reinterpret_cast<fae::info_entry *>(data->d_buf),
+                  data->d_size / sizeof(fae::info_entry)),
+        std::back_inserter(result));
+    data = elf_getdata(section, data);
+  }
+
+  return result;
 }
 
 fae::frame_inst *get_inst(ObjectFile &o) {
