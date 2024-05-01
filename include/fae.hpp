@@ -1,7 +1,7 @@
 #pragma once
 
-#include "parse.hpp"
 #include <cstdint>
+#include <fmt/core.h>
 #include <stdexcept>
 
 namespace fae {
@@ -135,6 +135,11 @@ union frame_inst {
   constexpr bool is_skip() const noexcept { return !is_pop(); }
 };
 
+inline auto format_as(frame_inst f) {
+  if (f.is_pop())
+    return fmt::format("pop r{}", fae::denumerate(f.p.get_reg()));
+  return fmt::format("skip {} bytes", (f.s.bytes));
+}
 } // namespace fae
 
 /* When unwinding, first see if cfa_reg is nonzero. If so, use out to
