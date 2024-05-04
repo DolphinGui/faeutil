@@ -26,10 +26,10 @@
 #include "parse.hpp"
 
 namespace {
-using fae_map = std::unordered_map<uint32_t, std::vector<fae::frame_inst>>;
+using fae_map = std::vector<std::vector<fae::frame_inst>>;
 
 struct mapping {
-  std::unordered_map<uint32_t, uint32_t> mapping;
+  std::vector<uint16_t> offsets;
   std::vector<fae::frame_inst> data;
 };
 
@@ -51,16 +51,13 @@ fae_map create_map(ObjectFile &obj) {
   size_t offset = 0;
 
   fae_map result;
-  for (auto &info : infos) {
+  for (auto const &info : infos) {
     if (info.offset == 0xffffffff)
       continue;
     auto sub = inst.subspan(offset, info.length / sizeof(fae::frame_inst));
     auto subframe = std::vector<fae::frame_inst>{sub.begin(), sub.end()};
     fmt::println("offset {}, size {}", info.offset, subframe.size());
-    for (auto f : subframe) {
-      fmt::println("{}", fae::format_as(f));
-    }
-    result.insert({offset, std::move(subframe)});
+    result.push_back(std::move(subframe));
     offset += info.length;
   }
   return result;
@@ -70,10 +67,12 @@ fae_map create_map(ObjectFile &obj) {
 mapping relocate(fae_map f) {
   mapping result;
   uint32_t off = 0;
-  for (auto &&[offset, data] : f) {
-    fmt::println("{} -> {}, {}", offset, off, data.size());
+  result.offsets.reserve(f.size());
+  // this should really be a cumulative sum but for now I want to print stuff
+  for (auto &data : f) {
+    fmt::println("{}, {}", off, data.size());
     std::ranges::copy(data, std::back_inserter(result.data));
-    result.mapping[offset] = off;
+    result.offsets.push_back(off);
     off += result.data.size() * sizeof(result.data.back());
   }
   return result;
@@ -96,17 +95,22 @@ void write_table(ObjectFile &obj, ObjectFile &out) {
   auto infos = obj.iterate_data<fae::info_entry>(obj.find_scn(".fae_info")) |
                ranges::to<std::vector>;
   auto offset = get_scn_size(text) + infos.size() * sizeof(fae::table_entry);
-  auto n = infos | std::views::transform([&](fae::info_entry const &entry) {
-             return fae::table_entry{
-                 .pc_begin = cast16(entry.begin),
-                 .pc_end = cast16(entry.begin + entry.range),
-                 .data = entry.offset == 0xffffffff
-                             ? uint16_t(0xffff)
-                             : cast16(map.mapping.at(entry.offset) + offset),
-                 .length = cast16(entry.length),
-                 .lsda = 0};
-           }) |
-           ranges::to<std::vector>;
+  std::ranges::reverse(map.offsets);
+  auto n =
+      infos | std::views::transform([&](fae::info_entry const &entry) {
+        uint16_t off = 0xffff;
+        if (entry.offset != 0xffffffff) {
+          off = map.offsets.back() + offset;
+          fmt::println("total offset: {}, {}", map.offsets.back(), offset);
+          map.offsets.pop_back();
+        }
+        return fae::table_entry{.pc_begin = cast16(entry.begin),
+                                .pc_end = cast16(entry.begin + entry.range),
+                                .data = off,
+                                .length = cast16(entry.length),
+                                .lsda = 0};
+      }) |
+      ranges::to<std::vector>;
 
   auto fae_data = make_fae_data_scn(out);
   fae::header header{.length = cast16(n.size() * sizeof(fae::table_entry))};
