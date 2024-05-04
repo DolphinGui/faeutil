@@ -4,17 +4,10 @@
 #include "parse.hpp"
 #include "read_fae.hpp"
 #include <cassert>
-#include <cstring>
 #include <elf.h>
 #include <fmt/ranges.h>
 #include <libelf.h>
-
-namespace {
-std::string_view get_symbol_name(ObjectFile &o, uint32_t index) {
-  return elf_strptr(o.elf, o.strtab_index, o.get_sym(index).st_name);
-}
-
-} // namespace
+#include <range/v3/range/conversion.hpp>
 
 int main(int argc, char **argv) {
   assert(argc == 2);
@@ -29,19 +22,22 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  // auto inst = fae::get_inst(o);
   uint32_t i = 0;
   for (auto &entry : info) {
-    fmt::println("Entry {}: {} bytes at {:#0x}, pc: [{:#0x}, {:#0x}]", i++, entry.length,
-                 entry.offset, entry.begin, entry.range + entry.begin);
-    // for (auto i = inst + entry.offset; i != inst + entry.length +
-    // entry.offset;
-    //      i++) {
-    //   if (i->is_pop()) {
-    //     fmt::println("  pop r{}", fae::denumerate(i->p.get_reg()));
-    //   } else {
-    //     fmt::println("  skip {} bytes", (i->s.bytes));
-    //   }
-    // }
+    fmt::println("Entry {}: {} bytes at {:#0x}, pc: [{:#0x}, {:#0x}]", i++,
+                 entry.length, entry.offset, entry.begin,
+                 entry.range + entry.begin);
+  }
+
+  fmt::println("frame instructions:");
+  auto instructions = fae::get_inst(o);
+  for (auto instruction : instructions) {
+    if (instruction.is_pop()) {
+      fmt::println("{:#0x}: pop r{}", instruction.byte,
+                   fae::denumerate(instruction.p.get_reg()));
+    } else {
+      fmt::println("{:#0x}: skip {} bytes", instruction.byte,
+                   (instruction.s.bytes));
+    }
   }
 }

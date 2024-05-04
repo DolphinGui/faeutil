@@ -94,7 +94,8 @@ void write_table(ObjectFile &obj, ObjectFile &out) {
   auto map = relocate(create_map(obj));
   auto infos = obj.iterate_data<fae::info_entry>(obj.find_scn(".fae_info")) |
                ranges::to<std::vector>;
-  auto offset = get_scn_size(text) + infos.size() * sizeof(fae::table_entry);
+  auto offset = get_scn_size(text) + infos.size() * sizeof(fae::table_entry) +
+                sizeof(fae::header);
   std::ranges::reverse(map.offsets);
   auto n =
       infos | std::views::transform([&](fae::info_entry const &entry) {

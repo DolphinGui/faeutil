@@ -2,13 +2,13 @@
 
 #include "fae.hpp"
 #include "parse.hpp"
-#include <cstdint>
-#include <memory>
-#include <span>
 #include <vector>
 
 namespace fae {
 
 std::vector<info_entry> read_info(ObjectFile &o);
-fae::frame_inst *get_inst(ObjectFile &);
+inline auto get_inst(ObjectFile &o) {
+  auto section = o.find_scn(".fae_entries");
+  return o.iterate_data<fae::frame_inst>(section);
+}
 } // namespace fae

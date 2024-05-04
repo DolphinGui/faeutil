@@ -21,11 +21,4 @@ std::vector<info_entry> read_info(ObjectFile &o) {
   return result;
 }
 
-fae::frame_inst *get_inst(ObjectFile &o) {
-  auto section = o.find_scn(".fae_entries");
-  auto data = elf_rawdata(section, nullptr);
-  if (!data || !data->d_buf)
-    throw std::runtime_error("no data associated with .fae_info");
-  return static_cast<fae::frame_inst *>(data->d_buf);
-}
 } // namespace fae
