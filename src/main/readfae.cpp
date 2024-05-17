@@ -24,9 +24,9 @@ int main(int argc, char **argv) {
 
   uint32_t i = 0;
   for (auto &entry : info) {
-    fmt::println("Entry {}: {} bytes at {:#0x}, pc: [{:#0x}, {:#0x}]", i++,
-                 entry.length, entry.offset, entry.begin,
-                 entry.range + entry.begin);
+    fmt::println("Entry {}: {} bytes at {:#0x}, pc: [{:#0x}, {:#0x}], lsda: {:#0x}",
+                 i++, entry.length, entry.offset, entry.begin,
+                 entry.range + entry.begin, entry.lsda_offset);
   }
 
   fmt::println("frame instructions:");

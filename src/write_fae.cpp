@@ -1,10 +1,9 @@
 #include "avr_reloc.hpp"
 #include "concat_str.hpp"
-#include "external/ctre/ctre.hpp"
+#include "external/generator.hpp"
 #include "fae.hpp"
 #include "parse.hpp"
 #include <algorithm>
-#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -119,29 +118,31 @@ uint32_t create_info_section(ObjectFile &o, size_t name_offset,
 
   uint32_t offset = 0;
   write_section(
-      section,
-      entries | vs::transform([&](entry_info &&entry) {
-        fae::info_entry e{
-            .offset = entry.instructions.empty() ? -1 : offset,
-            .length = static_cast<uint32_t>(entry.instructions.size()),
-            .begin = entry.begin->default_value,
-            .begin_pc_symbol = entry.begin->symbol_index,
-            .range = entry.range->default_value,
-            .range_pc_symbol = entry.range->default_value,
-            .lsda_symbol = !entry.lsda ? 0xffffffff : entry.lsda->symbol_index,
-            .cfa_reg = entry.cfa_reg};
-        offset += static_cast<uint32_t>(entry.instructions.size());
-        return e;
-      }));
+      section, entries | vs::transform([&](entry_info &&entry) {
+                 fae::info_entry e{
+                     .offset = entry.instructions.empty() ? -1 : offset,
+                     .length = static_cast<uint32_t>(entry.instructions.size()),
+                     .begin = entry.begin->default_value,
+                     .range = entry.range->default_value,
+                     .lsda_offset = !entry.lsda ? 0xffffffff : 0,
+                     .cfa_reg = entry.cfa_reg};
+                 offset += static_cast<uint32_t>(entry.instructions.size());
+                 return e;
+               }));
   return elf_ndxscn(section);
 }
 
-Elf32_Rela generate_rela(auto arg) {
+tl::generator<const Elf32_Rela> generate_rela(auto arg) {
   auto &&[index, info] = arg;
   auto offset = index * sizeof(fae::info_entry);
-  return Elf32_Rela{
+  co_yield Elf32_Rela{
       static_cast<Elf32_Addr>(offset + offsetof(fae::info_entry, begin)),
       ELF32_R_INFO(info.begin->symbol_index, avr::R_AVR_32), 0};
+  if (info.lsda)
+    co_yield Elf32_Rela{static_cast<Elf32_Addr>(
+                            offset + offsetof(fae::info_entry, lsda_offset)),
+                        ELF32_R_INFO(info.lsda->symbol_index, avr::R_AVR_32),
+                        0};
 }
 
 void create_rela(ObjectFile &o, size_t name_offset, uint32_t info_index,
@@ -155,14 +156,16 @@ void create_rela(ObjectFile &o, size_t name_offset, uint32_t info_index,
   auto section = o.make_section(header);
 
   auto n = entries | std::views::enumerate |
-           std::views::transform([&](auto &&a) { return generate_rela(a); });
-
-  write_section(o, section, n);
+           std::views::transform([&](auto &&a) { return generate_rela(a); }) |
+           std::views::join;
+  std::vector<Elf32_Rela> rela;
+  rela.reserve(entries.size() * 2);
+  std::ranges::copy(n, std::back_inserter(rela));
+  write_section(o, section, rela);
 }
 } // namespace
 
-void write_fae(ObjectFile &o, std::span<frame> frames,
-               std::string_view filename) {
+void write_fae(ObjectFile &o, std::span<frame> frames) {
   // todo: determine size of return address via mcu architecture
   // some avrs use sp registers 3 bytes large
   auto entries =

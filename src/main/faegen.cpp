@@ -14,5 +14,5 @@ int main(int argc, char **argv) {
   auto o = ObjectFile(fileno_unlocked(f));
 
   auto frames = parse_object(o);
-  write_fae(o, frames, argv[1]);
+  write_fae(o, frames);
 }

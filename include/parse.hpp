@@ -173,7 +173,7 @@ unwind_info parse_cfi(std::span<const uint8_t> cfi_initial,
 
 std::vector<frame> parse_object(ObjectFile &);
 
-void write_fae(ObjectFile &, std::span<frame>, std::string_view filename);
+void write_fae(ObjectFile &, std::span<frame>);
 
 // template implementations start
 template <typename T>

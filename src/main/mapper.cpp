@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <elf.h>
+#include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <iterator>
 #include <libelf.h>
@@ -35,7 +36,8 @@ struct mapping {
 
 uint16_t cast16(size_t s) {
   if (s > std::numeric_limits<uint16_t>::max()) {
-    throw std::overflow_error("cast16 overflow!");
+    throw std::overflow_error(
+        fmt::format("cast16 overflow! {} is out of bounds", s));
   }
   return static_cast<uint16_t>(s);
 }
@@ -109,7 +111,9 @@ void write_table(ObjectFile &obj, ObjectFile &out) {
                                 .pc_end = cast16(entry.begin + entry.range),
                                 .data = off,
                                 .length = cast16(entry.length),
-                                .lsda = 0};
+                                .lsda = entry.lsda_offset == 0xffffffff
+                                            ? uint16_t(0xffff)
+                                            : cast16(entry.lsda_offset)};
       }) |
       ranges::to<std::vector>;
 

@@ -10,10 +10,8 @@ struct info_entry {
   uint32_t offset;
   uint32_t length;
   uint32_t begin;
-  uint32_t begin_pc_symbol; // (index into symtab)
   uint32_t range;
-  uint32_t range_pc_symbol;
-  uint32_t lsda_symbol;
+  uint32_t lsda_offset;
   uint32_t cfa_reg;
 };
 
@@ -140,6 +138,7 @@ inline auto format_as(frame_inst f) {
     return fmt::format("pop r{}", fae::denumerate(f.p.get_reg()));
   return fmt::format("skip {} bytes", (f.s.bytes));
 }
+
 } // namespace fae
 
 /* When unwinding, first see if cfa_reg is nonzero. If so, use out to
