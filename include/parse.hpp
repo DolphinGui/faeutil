@@ -121,7 +121,7 @@ size_t write_section(ObjectFile &o, size_t index, Input input) {
 struct relocatable_t {
   uint32_t symbol_index{};
   avr::reloc_type type{};
-  uint32_t default_value{};
+  int64_t default_value{};
   int32_t addend{};
   uint32_t offset{};
 
@@ -131,16 +131,8 @@ struct relocatable_t {
     // yes this leaks memory
     // no I literally do not care. this program is expected to be very short
     // lived
-    return new relocatable_t(consume_ptr(ptr, encoding).val, offset);
-  }
-
-  static std::reference_wrapper<relocatable_t>
-  make(uint32_t symbol, uint32_t value, uint32_t offset, avr::reloc_type type) {
-    auto result = std::ref(*(new relocatable_t(value, offset)));
-    result.get().symbol_index = symbol;
-    result.get().type = type;
-    result.get().offset = offset;
-    return result;
+    auto n = new relocatable_t(consume_ptr(ptr, encoding).val, offset);
+    return n;
   }
 
   static inline std::unordered_map<uint64_t,
@@ -164,7 +156,7 @@ struct unwind_info {
 };
 
 struct frame {
-  relocatable_t *begin{}, *range{}, *lsda{};
+  dwarf_ptr begin{}, range{}, lsda{};
   unwind_info frame;
 };
 

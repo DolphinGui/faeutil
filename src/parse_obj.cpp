@@ -14,6 +14,7 @@
 #include <elfutils/libdw.h>
 #include <err.h>
 #include <fcntl.h>
+#include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <libelf.h>
 #include <optional>
@@ -242,6 +243,7 @@ struct exception_sections {
   buffer frame_relocations;
   buffer lsda_sections;
   buffer lsda_relocations;
+  uint64_t address{};
 };
 
 exception_sections get_sections(ObjectFile &o) {
@@ -275,6 +277,7 @@ exception_sections get_sections(ObjectFile &o) {
     if (ctre::match<R"(\.eh_frame.*)">(name)) {
       CHECK_DECL(Elf_Data *data = elf_getdata(section, nullptr), elf_errno());
       result.frame_sections = data;
+      result.address = header->sh_addr;
     } else if (ctre::match<R"(\.rela\.eh_frame.*)">(name)) {
       copy_data(result.frame_relocations);
     } else if (ctre::match<R"(\.gcc_except_table.*)">(name)) {
@@ -330,7 +333,8 @@ void parse_cie(Dwarf_CIE const &cie, Dwarf_Off offset,
 }
 
 void parse_fde(Dwarf_Off offset, std::unordered_map<uint64_t, Aug> &cies,
-               std::vector<frame> &frames, const uint8_t *const segment_begin) {
+               std::vector<frame> &frames, const uint8_t *const segment_begin,
+               uint64_t address) {
   frames.push_back({});
   frame &f = frames.back();
   auto ptr = segment_begin + offset;
@@ -343,19 +347,23 @@ void parse_fde(Dwarf_Off offset, std::unordered_map<uint64_t, Aug> &cies,
   auto fde_offset = ptr - segment_begin;
   auto cie_offset = fde_offset - consume<uint32_t>(&ptr);
   auto &cie = cies.at(cie_offset);
-  f.begin = relocatable_t::make(&ptr, cie.fde_ptr_encoding, segment_begin);
-  f.range = relocatable_t::make(&ptr, cie.fde_ptr_encoding, segment_begin);
+  auto p = ptr - segment_begin;
+  f.begin = consume_ptr(&ptr, cie.fde_ptr_encoding);
+  if (f.begin.pc_rel) {
+    f.begin.val += address + p; // this probably needs to be refactored better
+  }
+  f.range = consume_ptr(&ptr, cie.fde_ptr_encoding);
   if (cie.personality_encoding != DW_EH_PE_omit) {
     std::size_t lsda_len{};
     ptr += bfs::DecodeLeb128(ptr, 4, &lsda_len);
-    f.lsda = relocatable_t::make(&ptr, cie.personality_encoding, segment_begin);
+    f.lsda = consume_ptr(&ptr, cie.personality_encoding);
   }
   f.frame = parse_cfi({cie.begin_instruction, cie.end_instruction},
                       {ptr, length + fde_offset + segment_begin});
 }
 
 std::vector<frame> parse_eh(ObjectFile &o, Elf_Data *eh,
-                            std::span<Elf32_Rela> eh_reloc) {
+                            std::span<Elf32_Rela> eh_reloc, uint64_t address) {
   CHECK_DECL(auto *n = elf32_getehdr(o.elf);, !n);
   CHECK_DECL(auto cfi = dwarf_getcfi_elf(o.elf), !cfi);
   Dwarf_Off offset{};
@@ -372,7 +380,7 @@ std::vector<frame> parse_eh(ObjectFile &o, Elf_Data *eh,
     if (entry.CIE_id == DW_CIE_ID_64) {
       parse_cie(entry.cie, offset, cies);
     } else {
-      parse_fde(offset, cies, frames, segment_begin);
+      parse_fde(offset, cies, frames, segment_begin, address);
     }
     offset = next_offset;
   }
@@ -396,5 +404,6 @@ std::vector<frame> parse_object(ObjectFile &o) {
   auto n = get_sections(o);
   return parse_eh(o, n.frame_sections,
                   {reinterpret_cast<Elf32_Rela *>(n.frame_relocations.b.data()),
-                   n.frame_relocations.b.size() / sizeof(Elf32_Rela)});
+                   n.frame_relocations.b.size() / sizeof(Elf32_Rela)},
+                  n.address);
 }

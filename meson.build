@@ -20,7 +20,6 @@ obj_util = static_library(
 
 fae = static_library(
   'fae',
-  'src/write_fae.cpp',
   'src/read_fae.cpp',
   include_directories: include_directories('include'),
   dependencies: [elf, fmt, ranges],
@@ -28,7 +27,7 @@ fae = static_library(
 
 executable(
   'faegen',
-  'src/main/faegen.cpp',
+  'src/main/gen.cpp',
   dependencies: [dwarf, elf, fmt, ranges],
   link_with: [fae, obj_util],
   include_directories: include_directories('include'),
@@ -37,16 +36,7 @@ executable(
 
 executable(
   'readfae',
-  'src/main/readfae.cpp',
-  dependencies: [dwarf, elf, fmt, ranges],
-  link_with: [fae, obj_util],
-  include_directories: include_directories('include'),
-  install: true,
-)
-
-executable(
-  'faemap',
-  'src/main/mapper.cpp',
+  'src/main/read.cpp',
   dependencies: [dwarf, elf, fmt, ranges],
   link_with: [fae, obj_util],
   include_directories: include_directories('include'),

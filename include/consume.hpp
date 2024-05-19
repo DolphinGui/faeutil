@@ -21,8 +21,8 @@ inline std::string consume_cstr(const uint8_t **ptr) {
 }
 
 struct dwarf_ptr {
-  int64_t val;
-  bool pc_rel, text_rel, data_rel, func_rel, aligned;
+  int64_t val{};
+  bool pc_rel{}, text_rel{}, data_rel{}, func_rel{}, aligned{};
 };
 
 inline dwarf_ptr consume_ptr(const uint8_t **ptr, uint8_t encoding) {
@@ -69,7 +69,7 @@ inline dwarf_ptr consume_ptr(const uint8_t **ptr, uint8_t encoding) {
     ptr += bfs::DecodeLeb128(*ptr, 12, &result.val);
     return result;
   default:
-    fmt::println("{}", encoding);
-    throw std::runtime_error("what is this");
+    throw std::runtime_error(
+        fmt::format("Unknown DWARF encoding: {:#0x}", encoding));
   }
 }
