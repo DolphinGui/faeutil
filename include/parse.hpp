@@ -9,6 +9,7 @@
 #include <external/generator.hpp>
 #include <functional>
 #include <libelf.h>
+#include <map>
 #include <ranges>
 #include <span>
 #include <stdexcept>
@@ -154,6 +155,13 @@ struct unwind_info {
   int32_t cfa_offset{};
   uint32_t cfa_register;
 };
+
+inline bool operator==(unwind_info const &lhs,
+                       unwind_info const &rhs) noexcept {
+  return lhs.register_offsets == rhs.register_offsets &&
+         lhs.cfa_register == rhs.cfa_register &&
+         lhs.cfa_offset == rhs.cfa_offset;
+}
 
 struct frame {
   dwarf_ptr begin{}, range{}, lsda{};

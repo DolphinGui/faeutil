@@ -148,6 +148,7 @@ uint32_t get_offset(std::string_view name, Elf *elf, uint32_t str_index) {
   Elf_Data *data{};
   do {
     data = elf_getdata(elf_getscn(elf, str_index), data);
+    CHECK(elf_errno());
     auto n =
         std::string_view(static_cast<const char *>(data->d_buf), data->d_size);
     auto result = n.find(name);

@@ -23,7 +23,8 @@ struct table_entry {
   uint16_t pc_begin;
   uint16_t pc_end;
   uint16_t data;
-  uint16_t length;
+  uint8_t frame_reg;
+  uint8_t length;
   uint16_t lsda;
 };
 /* Entries are aligned by 2 so that personality_ptr
@@ -35,7 +36,10 @@ struct table_entry {
 // high bit is 0
 struct skip {
   uint8_t bytes;
-  constexpr skip(uint8_t b) noexcept : bytes(b & ~0b10000000) {}
+  constexpr skip(uint8_t b) : bytes(b & ~0b10000000) {
+    if (b > uint8_t(~0b10000000))
+      throw std::runtime_error(fmt::format("{} skip is too large!", b));
+  }
 };
 
 enum struct reg : uint8_t {
@@ -56,7 +60,9 @@ enum struct reg : uint8_t {
   r16,
   r17,
   r28,
-  r29
+  r29,
+  SPL,
+  SPH
 };
 
 constexpr inline reg enumerate(uint8_t r) {
