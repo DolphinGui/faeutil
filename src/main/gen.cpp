@@ -53,8 +53,8 @@ struct unwind_range {
 std::vector<fae::frame_inst>
 create_data(std::unordered_map<unwind_ref, unwind_range> &out) {
   std::vector<fae::frame_inst> result;
-  for (auto &&[unwind, offset] : out) {
-    offset.data = result.size();
+  for (auto &&[unwind, range] : out) {
+    range.data = result.size();
     std::map<int64_t, int32_t> offset_to_reg;
     for (auto &&[reg, offset] : unwind.get().register_offsets) {
       if (reg < 32)
@@ -77,7 +77,7 @@ create_data(std::unordered_map<unwind_ref, unwind_range> &out) {
       result.push_back({fae::skip(stack)});
     }
 
-    offset.size = result.size() - offset.data;
+    range.size = result.size() - range.data;
   }
   return result;
 }
@@ -85,7 +85,8 @@ create_data(std::unordered_map<unwind_ref, unwind_range> &out) {
 auto to_entry(std::unordered_map<unwind_ref, unwind_range> const &mapping,
               uint32_t data_offset) {
   data_offset += mapping.size() * sizeof(fae::table_entry);
-  return std::views::transform([&](frame &f) {
+
+  return std::views::transform([&, data_offset](frame &f) {
     auto range = mapping.at(std::cref(f.frame));
     return fae::table_entry{.pc_begin = cast16(f.begin.val),
                             .pc_end = cast16(f.begin.val + f.range.val),
@@ -109,13 +110,17 @@ void create_fae_obj(ObjectFile &obj, std::span<frame> frames) {
   auto out_file = fopen("__fae_data.o", "w");
   auto g = sg::make_scope_guard([&]() { fclose(out_file); });
   auto out = ObjectFile(fileno_unlocked(out_file), section_names);
+
   Elf32_Shdr header{};
   header.sh_name = out.get_section_offset(".fae_data");
   header.sh_type = SHT_PROGBITS;
   header.sh_flags = SHF_ALLOC;
+
   auto scn = out.make_section(header);
-  write_section(out, scn,
-                std::array{fae::header{.length = cast16(entries.size())}});
+  write_section(
+      out, scn,
+      std::array{fae::header{
+          .length = cast16(entries.size() * sizeof(fae::table_entry))}});
   write_section(out, scn, entries);
   write_section(out, scn, unwind_data);
   elf_update(out.elf, ELF_C_WRITE);
