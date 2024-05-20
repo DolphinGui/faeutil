@@ -6,8 +6,41 @@
 #include <cassert>
 #include <elf.h>
 #include <fmt/ranges.h>
+#include <iterator>
 #include <libelf.h>
 #include <range/v3/range/conversion.hpp>
+#include <stdexcept>
+
+namespace {
+using namespace std::string_view_literals;
+std::pair<std::vector<fae::table_entry>, std::vector<fae::frame_inst>>
+read_fae(ObjectFile &o) {
+  std::vector<fae::table_entry> table;
+  std::vector<fae::frame_inst> data;
+  std::vector<uint8_t> raw;
+
+  auto scn = o.find_scn(".fae_data");
+  std::ranges::copy(o.iterate_data<uint8_t>(scn), std::back_inserter(raw));
+  uint8_t const *ptr = raw.data();
+  auto header = reinterpret_cast<fae::header const *>(ptr);
+  if (header->header != "avrc++0"sv) {
+    throw std::runtime_error(".fae_data header does not match!");
+  }
+  ptr += sizeof(fae::header);
+  table.reserve(header->length / sizeof(fae::table_entry));
+  std::ranges::copy(std::span(reinterpret_cast<const fae::table_entry *>(ptr),
+                              header->length / sizeof(fae::table_entry)),
+                    std::back_inserter(table));
+
+  ptr += sizeof(header->length);
+  auto data_len = (raw.size() - header->length) / sizeof(fae::frame_inst);
+  data.reserve(data_len);
+  std::ranges::copy(
+      std::span(reinterpret_cast<const fae::frame_inst *>(ptr), data_len),
+      std::back_inserter(data));
+  return {std::move(table), std::move(data)};
+}
+} // namespace
 
 int main(int argc, char **argv) {
   assert(argc == 2);
@@ -15,29 +48,13 @@ int main(int argc, char **argv) {
 
   auto f = fopen(argv[1], "r+");
   auto guard = sg::make_scope_guard([&]() { fclose(f); });
-  auto o = ObjectFile(fileno_unlocked(f));
-  auto info = fae::read_info(o);
-  if (info.size() == 0) {
-    fmt::println("No entries");
-    return 0;
-  }
-
-  uint32_t i = 0;
-  for (auto &entry : info) {
-    fmt::println("Entry {}: {} bytes at {:#0x}, pc: [{:#0x}, {:#0x}], lsda: {:#0x}",
-                 i++, entry.length, entry.offset, entry.begin,
-                 entry.range + entry.begin, entry.lsda_offset);
-  }
-
-  fmt::println("frame instructions:");
-  auto instructions = fae::get_inst(o);
-  for (auto instruction : instructions) {
-    if (instruction.is_pop()) {
-      fmt::println("{:#0x}: pop r{}", instruction.byte,
-                   fae::denumerate(instruction.p.get_reg()));
-    } else {
-      fmt::println("{:#0x}: skip {} bytes", instruction.byte,
-                   (instruction.s.bytes));
-    }
+  auto o = ObjectFile(fileno_unlocked(f), false, false);
+  auto [table, data] = read_fae(o);
+  fmt::println("{} entries", table.size());
+  for (auto const &frame : table) {
+    fmt::println(
+        "[{:#0x}, {:#0x}], stack in r{}, lsda: {:#0x}, data at {:#0x}, len {}",
+        frame.pc_begin, frame.pc_end, frame.frame_reg, frame.lsda, frame.data,
+        frame.length);
   }
 }

@@ -21,7 +21,7 @@
 
 struct ObjectFile {
   // takes ownership of file
-  explicit ObjectFile(int file_desc);
+  explicit ObjectFile(int file_desc, bool assert_symtab = true, bool assert_strtab = true);
   // .shstrtab is always appended to sh_strings
   explicit ObjectFile(int file_desc, std::string_view sh_strings);
   ObjectFile(ObjectFile &&o) : file_desc(o.file_desc), elf(o.elf) {

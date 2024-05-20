@@ -72,7 +72,7 @@ private:
   }
 };
 
-ObjectFile::ObjectFile(int file)
+ObjectFile::ObjectFile(int file, bool assert_symtab, bool assert_strtab)
     : file_desc(file), elf(GlobalInitializer::init().open_elf(file, false)) {
   if (elf == nullptr)
     throw std::runtime_error(
@@ -97,8 +97,12 @@ ObjectFile::ObjectFile(int file)
       strtab_index = i;
     }
   }
-  THROW_IF(symtab_index == 0);
-  THROW_IF(strtab_index == 0);
+  if (assert_symtab) {
+    THROW_IF(symtab_index == 0);
+  }
+  if (assert_strtab) {
+    THROW_IF(strtab_index == 0);
+  }
 }
 
 ObjectFile::ObjectFile(int file, std::string_view sh)

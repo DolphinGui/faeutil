@@ -13,7 +13,7 @@ namespace {} // namespace
 
 namespace fae {
 std::vector<info_entry> read_info(ObjectFile &o) {
-  auto section = o.find_scn(".fae_info");
+  auto section = o.find_scn(".fae_data");
   std::vector<info_entry> result;
   result.reserve(get_scn_size(section));
   std::ranges::copy(o.iterate_data<info_entry>(section),
