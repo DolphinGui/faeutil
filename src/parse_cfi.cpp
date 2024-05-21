@@ -3,6 +3,7 @@
 #include "parse.hpp"
 #include <cstdint>
 #include <dwarf.h>
+#include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <stdexcept>
 
@@ -43,8 +44,8 @@ void parse(unwind_info *out, const uint8_t **ptr) {
 
   case DW_CFA_def_cfa: {
     auto reg = operand(uint64_t{});
-    auto offset = operand(uint64_t{});
-    out->register_offsets[reg] = offset;
+    out->cfa_offset = operand(uint64_t{}) * data_alignment;
+    out->cfa_register = reg;
   }
   case DW_CFA_nop:
     return;

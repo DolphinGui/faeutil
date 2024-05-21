@@ -1,4 +1,5 @@
 #include "external/ctre/ctre.hpp"
+#include "external/leb128.hpp"
 #include "external/scope_guard.hpp"
 #include <cassert>
 #include <cstdint>
@@ -66,10 +67,17 @@ create_data(std::unordered_map<unwind_ref, unwind_range> &out) {
       auto [back_off, back_reg] = *offset_to_reg.rbegin();
       if (stack == back_off) {
         result.push_back({fae::enumerate(back_reg)});
+        offset_to_reg.erase(back_off);
         stack--;
       } else {
-        result.push_back({fae::skip(stack - back_off)});
-        offset_to_reg.erase(back_off);
+        uint32_t needed_stack = stack - back_off;
+        while (needed_stack > 0) {
+          uint32_t skipped_stack =
+              std::min(needed_stack, fae::skip::max_skip_bytes);
+          result.push_back({fae::skip(skipped_stack)});
+          fmt::println("skipping {} bytes", skipped_stack);
+          needed_stack -= skipped_stack;
+        }
         stack -= stack - back_off;
       }
     }
@@ -83,11 +91,15 @@ create_data(std::unordered_map<unwind_ref, unwind_range> &out) {
 }
 
 auto to_entry(std::unordered_map<unwind_ref, unwind_range> const &mapping,
-              uint32_t data_offset) {
-  data_offset += mapping.size() * sizeof(fae::table_entry);
+              uint32_t data_offset, std::vector<fae::frame_inst> &debug) {
 
   return std::views::transform([&, data_offset](frame &f) {
     auto range = mapping.at(std::cref(f.frame));
+    auto span = std::span(debug);
+    fmt::println("debug: {:#0x}", f.begin.val);
+    for (auto f : span.subspan(range.data, range.size)) {
+      fmt::println("  {}", fae::format_as(f));
+    }
     return fae::table_entry{.pc_begin = cast16(f.begin.val),
                             .pc_end = cast16(f.begin.val + f.range.val),
                             .data = cast16(range.data + data_offset),
@@ -103,9 +115,10 @@ void create_fae_obj(ObjectFile &obj, std::span<frame> frames) {
   for (auto &frame : frames) {
     offset_mapping.insert({std::cref(frame.frame), {}});
   }
-  uint32_t size = get_scn_size(obj.find_scn(".text"));
   auto unwind_data = create_data(offset_mapping);
-  auto entries = frames | to_entry(offset_mapping, size);
+  auto text_size = get_scn_size(obj.find_scn(".text"));
+  uint32_t offset = text_size + frames.size() * sizeof(fae::table_entry);
+  auto entries = frames | to_entry(offset_mapping, offset, unwind_data);
 
   auto out_file = fopen("__fae_data.o", "w");
   auto g = sg::make_scope_guard([&]() { fclose(out_file); });
@@ -115,6 +128,7 @@ void create_fae_obj(ObjectFile &obj, std::span<frame> frames) {
   header.sh_name = out.get_section_offset(".fae_data");
   header.sh_type = SHT_PROGBITS;
   header.sh_flags = SHF_ALLOC;
+  header.sh_addr = text_size;
 
   auto scn = out.make_section(header);
   write_section(

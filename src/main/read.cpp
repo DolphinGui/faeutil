@@ -2,8 +2,8 @@
 #include "external/scope_guard.hpp"
 #include "fae.hpp"
 #include "parse.hpp"
-#include "read_fae.hpp"
 #include <cassert>
+#include <concepts>
 #include <elf.h>
 #include <fmt/ranges.h>
 #include <iterator>
@@ -12,8 +12,19 @@
 #include <stdexcept>
 
 namespace {
+template <typename Except>
+auto catch_val(auto fn, auto &&...args)
+    -> std::optional<std::invoke_result_t<decltype(fn), decltype(args)...>> {
+  try {
+    return fn(args...);
+  } catch (Except) {
+    return std::nullopt;
+  }
+}
+
 using namespace std::string_view_literals;
-std::pair<std::vector<fae::table_entry>, std::vector<fae::frame_inst>>
+std::tuple<std::vector<fae::table_entry>, std::vector<fae::frame_inst>,
+           uint32_t>
 read_fae(ObjectFile &o) {
   std::vector<fae::table_entry> table;
   std::vector<fae::frame_inst> data;
@@ -38,7 +49,13 @@ read_fae(ObjectFile &o) {
   std::ranges::copy(
       std::span(reinterpret_cast<const fae::frame_inst *>(ptr), data_len),
       std::back_inserter(data));
-  return {std::move(table), std::move(data)};
+
+  uint32_t offset = 0;
+  auto sh_header = elf32_getshdr(scn);
+  offset = sh_header->sh_addr + header->length;
+  fmt::println("offset: {:#0x}", offset);
+
+  return {std::move(table), std::move(data), offset};
 }
 } // namespace
 
@@ -49,12 +66,16 @@ int main(int argc, char **argv) {
   auto f = fopen(argv[1], "r+");
   auto guard = sg::make_scope_guard([&]() { fclose(f); });
   auto o = ObjectFile(fileno_unlocked(f), false, false);
-  auto [table, data] = read_fae(o);
+  auto [table, data, offset] = read_fae(o);
   fmt::println("{} entries", table.size());
   for (auto const &frame : table) {
-    fmt::println(
-        "[{:#0x}, {:#0x}], stack in r{}, lsda: {:#0x}, data at {:#0x}, len {}",
-        frame.pc_begin, frame.pc_end, frame.frame_reg, frame.lsda, frame.data,
-        frame.length);
+    fmt::println("[{:#0x}, {:#0x}], stack in r{}, lsda: {:#0x}", frame.pc_begin,
+                 frame.pc_end, frame.frame_reg, frame.lsda);
+    if (frame.length != 0) {
+      auto n = std::span(data);
+      for (auto inst : n.subspan(frame.data - offset, frame.length)) {
+        fmt::println("  {}", fae::format_as(inst));
+      }
+    }
   }
 }

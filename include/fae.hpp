@@ -36,8 +36,9 @@ struct table_entry {
 // high bit is 0
 struct skip {
   uint8_t bytes;
+  constexpr static uint32_t max_skip_bytes = uint8_t(~0b10000000);
   constexpr skip(uint8_t b) : bytes(b & ~0b10000000) {
-    if (b > uint8_t(~0b10000000))
+    if (b > max_skip_bytes)
       throw std::runtime_error(fmt::format("{} skip is too large!", b));
   }
 };
