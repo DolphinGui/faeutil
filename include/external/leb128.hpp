@@ -78,10 +78,11 @@ inline constexpr std::size_t DecodeLeb128(uint8_t const *const data,
       res |= slice << shift;
       shift += 7;
       if (!(b & 0x80)) {
-        if ((shift < 64) && (b & 0x40)) {
-          *val = res | (-1ULL) << shift;
-          return i;
-        }
+        if constexpr (std::signed_integral<Int>)
+          if ((shift < 64) && (b & 0x40)) {
+            *val = res | (-1ULL) << shift;
+            return i;
+          }
         *val = res;
         return i;
       }
