@@ -18,18 +18,11 @@ obj_util = static_library(
   dependencies: [dwarf, elf, ranges],
 )
 
-fae = static_library(
-  'fae',
-  'src/read_fae.cpp',
-  include_directories: include_directories('include'),
-  dependencies: [elf, fmt, ranges],
-)
-
 executable(
   'faegen',
   'src/main/gen.cpp',
   dependencies: [dwarf, elf, fmt, ranges],
-  link_with: [fae, obj_util],
+  link_with: [obj_util],
   include_directories: include_directories('include'),
   install: true,
 )
@@ -38,7 +31,7 @@ executable(
   'readfae',
   'src/main/read.cpp',
   dependencies: [dwarf, elf, fmt, ranges],
-  link_with: [fae, obj_util],
+  link_with: [obj_util],
   include_directories: include_directories('include'),
   install: true,
 )
