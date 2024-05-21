@@ -48,6 +48,8 @@ struct ObjectFile {
   uint32_t find_index(std::string_view name);
   Elf_Scn *find_scn(std::string_view name);
 
+  void update(bool write);
+
   tl::generator<Elf_Scn *> iterate_sections();
   struct DataSentinal {};
   template <typename T> struct DataIterator {

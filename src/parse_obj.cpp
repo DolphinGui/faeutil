@@ -133,7 +133,7 @@ ObjectFile::ObjectFile(int file, std::string_view sh)
   header->sh_name = 1;
   header->sh_type = SHT_STRTAB;
   header->sh_flags = SHF_STRINGS;
-  update(elf);
+  update(false);
 }
 
 ObjectFile::~ObjectFile() {
@@ -202,6 +202,20 @@ Elf_Scn *ObjectFile::find_scn(std::string_view name) {
   auto index = find_index(name);
   CHECK_DECL(auto scn = elf_getscn(elf, index), !scn);
   return scn;
+}
+
+void ObjectFile::update(bool write) {
+  if (write)
+    elf_update(elf, ELF_C_WRITE);
+  else
+    elf_update(elf, ELF_C_NULL);
+
+  auto err = elf_errno();
+  // this is unstable and probably depends on implementation
+  // I hate this
+  if (err != 42 && err != 0)
+    throw std::runtime_error(
+        fmt::format("Error at {}: {}", __LINE__, m(elf_errmsg(err))));
 }
 
 tl::generator<Elf_Scn *> ObjectFile::iterate_sections() {

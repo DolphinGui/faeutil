@@ -3,7 +3,6 @@
 #include "fae.hpp"
 #include "parse.hpp"
 #include <cassert>
-#include <concepts>
 #include <elf.h>
 #include <fmt/ranges.h>
 #include <iterator>
@@ -43,16 +42,18 @@ read_fae(ObjectFile &o) {
                               header->length / sizeof(fae::table_entry)),
                     std::back_inserter(table));
 
-  ptr += sizeof(header->length);
-  auto data_len = (raw.size() - header->length) / sizeof(fae::frame_inst);
+  ptr += header->length;
+  auto data_len = (raw.size() - header->length - sizeof(fae::header)) /
+                  sizeof(fae::frame_inst);
   data.reserve(data_len);
   std::ranges::copy(
-      std::span(reinterpret_cast<const fae::frame_inst *>(ptr), data_len),
+      std::span(reinterpret_cast<const fae::frame_inst *>(ptr),
+                reinterpret_cast<const fae::frame_inst *>(raw.end().base())),
       std::back_inserter(data));
 
   uint32_t offset = 0;
   auto sh_header = elf32_getshdr(scn);
-  offset = sh_header->sh_addr + header->length;
+  offset = sh_header->sh_addr + header->length + sizeof(fae::header);
   fmt::println("offset: {:#0x}", offset);
 
   return {std::move(table), std::move(data), offset};
@@ -68,9 +69,10 @@ int main(int argc, char **argv) {
   auto o = ObjectFile(fileno_unlocked(f), false, false);
   auto [table, data, offset] = read_fae(o);
   fmt::println("{} entries", table.size());
+  int i = 0;
   for (auto const &frame : table) {
-    fmt::println("[{:#0x}, {:#0x}], stack in r{}, lsda: {:#0x}", frame.pc_begin,
-                 frame.pc_end, frame.frame_reg, frame.lsda);
+    fmt::println("{}: [{:#0x}, {:#0x}], stack in r{}, lsda: {:#0x}", i++,
+                 frame.pc_begin, frame.pc_end, frame.frame_reg, frame.lsda);
     if (frame.length != 0) {
       auto n = std::span(data);
       for (auto inst : n.subspan(frame.data - offset, frame.length)) {

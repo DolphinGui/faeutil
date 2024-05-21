@@ -9,15 +9,6 @@ inline const char *m(const char *c) {
     return "";
   return c;
 }
-inline void update(Elf *e) {
-  elf_update(e, ELF_C_NULL);
-  auto err = elf_errno();
-  // this is unstable and probably depends on implementation
-  // I hate this
-  if (err != 42 && err != 0)
-    throw std::runtime_error(
-        fmt::format("Error at {}: {}", __LINE__, m(elf_errmsg(err))));
-}
 
 #define CHECK(a)                                                               \
   do {                                                                         \
