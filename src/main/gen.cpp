@@ -59,10 +59,11 @@ create_data(std::unordered_map<unwind_ref, unwind_range> &out) {
     std::map<int64_t, int32_t> offset_to_reg;
     for (auto &&[reg, offset] : unwind.get().register_offsets) {
       if (reg < 32)
-        offset_to_reg.insert({offset * -1, reg}); // stack grows downwards
+        offset_to_reg.insert(
+            {offset * -1 - 2 + 1, reg}); // stack grows downwards
     }
 
-    int32_t stack = unwind.get().cfa_offset * -1;
+    int32_t stack = unwind.get().cfa_offset * -1 - 2;
     while (stack != 0 && !offset_to_reg.empty()) {
       auto [back_off, back_reg] = *offset_to_reg.rbegin();
       if (stack == back_off) {
@@ -90,10 +91,13 @@ create_data(std::unordered_map<unwind_ref, unwind_range> &out) {
 }
 
 auto to_entry(std::unordered_map<unwind_ref, unwind_range> const &mapping,
-              uint32_t data_offset, std::vector<fae::frame_inst> &debug) {
+              uint32_t data_offset) {
 
   return std::views::transform([&, data_offset](frame &f) {
     auto range = mapping.at(std::cref(f.frame));
+    if (f.frame.cfa_register != 28 && f.frame.cfa_register != 32) {
+      throw std::runtime_error("CFA_register is not r28 or r32!");
+    }
     return fae::table_entry{.pc_begin = cast16(f.begin.val),
                             .pc_end = cast16(f.begin.val + f.range.val),
                             .data = cast16(range.data + data_offset),
@@ -113,7 +117,7 @@ void create_fae_obj(ObjectFile &obj, std::span<frame> frames) {
   auto text_size = get_scn_size(obj.find_scn(".text"));
   uint32_t offset = text_size + frames.size() * sizeof(fae::table_entry) +
                     sizeof(fae::header);
-  auto entries = frames | to_entry(offset_mapping, offset, unwind_data);
+  auto entries = frames | to_entry(offset_mapping, offset);
 
   auto out_file = fopen("__fae_data.o", "w");
   auto g = sg::make_scope_guard([&]() { fclose(out_file); });
