@@ -2,37 +2,24 @@
 
 set -e
 
-objects=()
-sources=()
-for arg in "$@"
+args=( "$@" )
+
+for i in $(seq 0 ${#args[@]}); 
 do
-    if [[ "$arg" =~ ^.+\.o$ ]]; then
-      objects+=($arg)
-    elif [[ "$arg" =~ ^.+\.c.{1,2}$ ]]; then
-      sources+=($arg)
+    if [[ "${args[$i]}" = "-o" ]]; then
+      if [[ "${args[($i+1)]}" =~ ^.+[^o]$ ]]; then
+        linking="yes"
+        output="${args[($i+1)]}"
+      fi
     fi
 done
-obj_count="${#objects[@]}"
-src_count="${#sources[@]}"
 
-
-if (( obj_count > 1 )); then
+if [[ "$linking" = "yes" ]]; then
   avr-g++ $@
-  # faemap "${objects[@]}"
+  faegen $output
+  avr-g++ $@ __fae_data.o
 else
 
   avr-g++ $@
-
-  if (( obj_count == 0)); then
-    for src in "${sources[@]}"; do
-      objects+=(${src%.*}.o)
-    done
-  fi
-
-
-  for obj in "${objects[@]}"; do
-    faegen $obj
-  done
-  
 
 fi

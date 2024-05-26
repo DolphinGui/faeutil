@@ -74,6 +74,7 @@ int main(int argc, char **argv) {
     fmt::println("{}: [{:#0x}, {:#0x}], stack in r{}, lsda: {:#0x}", i++,
                  frame.pc_begin, frame.pc_end, frame.frame_reg, frame.lsda);
     if (frame.length != 0) {
+      fmt::println("frame inst [{:#0x}]:", frame.data);
       auto n = std::span(data);
       for (auto inst : n.subspan(frame.data - offset, frame.length)) {
         fmt::println("  {}", fae::format_as(inst));
