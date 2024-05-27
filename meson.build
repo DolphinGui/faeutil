@@ -15,13 +15,13 @@ obj_util = static_library(
   'src/parse_obj.cpp',
   'src/parse_cfi.cpp',
   include_directories: include_directories('include'),
-  dependencies: [dwarf, elf, ranges],
+  dependencies: [dwarf, elf, fmt, ranges],
 )
 
 executable(
   'faegen',
   'src/main/gen.cpp',
-  dependencies: [dwarf, elf, fmt, ranges],
+  dependencies: [elf, fmt, ranges],
   link_with: [obj_util],
   include_directories: include_directories('include'),
   install: true,
@@ -30,7 +30,7 @@ executable(
 executable(
   'readfae',
   'src/main/read.cpp',
-  dependencies: [dwarf, elf, fmt, ranges],
+  dependencies: [elf, fmt, ranges],
   link_with: [obj_util],
   include_directories: include_directories('include'),
   install: true,
