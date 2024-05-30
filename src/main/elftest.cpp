@@ -46,17 +46,17 @@ int main(int argc, char **argv) {
   auto elf = elf::parse_buffer(file);
 
   auto result = elf::serialize(elf);
-  auto r = to_binspan(std::span(result));
-  write_file(r);
+  write_file(result);
 
-  // fmt::println("bit parity: {}", l == r);
-  fmt::println("parse parity: {}", elf == elf::parse_buffer(r));
+  fmt::println("bit parity: {}", result == file);
+  // fmt::println("parse parity: {}", elf == elf::parse_buffer(r));
   fmt::println("total size: {}", file.size());
   fmt::println("file first few bytes: {}", std::span(file).subspan(0, 8));
   fmt::println("format: {}, endian: {}, abi: {}, type: {}, machine: {}",
                elf.format, elf.endian, elf.abi, elf.type, elf.machine);
   fmt::println("name offsets: {}", elf.name_map);
-  fmt::println("There are 18 section headers, starting at offset 0x151fec:\n");
+  fmt::println("program headers: {}", elf.program_headers.size());
+  fmt::println("There are {} section headers:\n", elf.sections.size());
   fmt::println(
       "Section Headers:\n"
       "  [Nr] Name              Type            Addr     Off    Size   "
