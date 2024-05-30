@@ -43,6 +43,7 @@ struct file {
     case e64:
       return 64;
     }
+    throw std::logic_error("Unknown elf_class enumeration");
   }
   std::vector<section> sections;
   std::vector<program_header> program_headers;
