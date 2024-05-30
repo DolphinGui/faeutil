@@ -36,7 +36,15 @@ int main(int argc, char **argv) {
   fmt::println("file first few bytes: {}", std::span(file).subspan(0, 8));
   fmt::println("format: {}, endian: {}, abi: {}, type: {}, machine: {}",
                elf.format, elf.endian, elf.abi, elf.type, elf.machine);
+  fmt::println("There are 18 section headers, starting at offset 0x151fec:\n");
+  fmt::println("Section Headers:\n"
+               "  [Nr] Name              Type            Addr     Off    Size   "
+               "ES Flg Lk Inf Al");
+  int i = 0;
   for (auto &sh : elf.sections) {
-    fmt::println("section {}: size: {}", sh.name, sh.data.size());
+    fmt::println(
+        "  [{:2}] {:17} {:15} {:08x} {:06x} {:06x} {:02x} {:3>} {:2} {:3} {:2}",
+        i++, sh.name, sh.type, sh.address, sh.file_offset, sh.data.size(),
+        sh.entry_size, sh.flags, sh.link, sh.info, sh.alignment);
   }
 }

@@ -1,10 +1,8 @@
 #pragma once
 
 #include "elf/types.hpp"
-#include <array>
 #include <concepts>
-#include <string>
-#include <type_traits>
+#include "elf.h"
 
 #define def_enum()
 

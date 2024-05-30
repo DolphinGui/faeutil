@@ -165,31 +165,23 @@ enum flags : u32 {
 
 inline std::string format_as(flags e) noexcept {
   std::string result;
-  constexpr auto all_flags = std::to_array<std::pair<flags, const char *>>(
-      {{write, "write"},
-       {alloc, "alloc"},
-       {execinstr, "execinstr"},
-       {merge, "merge"},
-       {strings, "strings"},
-       {info_link, "info_link"},
-       {link_order, "link_order"},
-       {os_nonconforming, "os_nonconforming"},
-       {f_group, "group"},
-       {tls, "tls"},
-       {ordered, "ordered"},
-       {exclude, "exclude"}});
-  bool first = true;
+  constexpr auto all_flags =
+      std::to_array<std::pair<flags, const char *>>({{write, "W"},
+                                                     {alloc, "A"},
+                                                     {execinstr, "X"},
+                                                     {merge, "M"},
+                                                     {strings, "S"},
+                                                     {info_link, "I"},
+                                                     {link_order, "L"},
+                                                     {os_nonconforming, "O"},
+                                                     {f_group, "G"},
+                                                     {tls, "T"},
+                                                     {exclude, "X"}});
   for (auto &&[val, name] : all_flags) {
     if (bool(e & val)) {
-      if (!first)
-        result += " | ";
-      else
-        first = false;
       result += name;
     }
   }
-  if (result.empty())
-    return "0";
   return result;
 }
 } // namespace sh
@@ -222,17 +214,13 @@ enum flags { executable = (1 << 0), write = (1 << 1), read = (1 << 2) };
 inline std::string format_as(flags f) {
   std::string result;
   constexpr auto all_flags = std::to_array<std::pair<flags, const char *>>(
-      {{executable, "exec"}, {write, "write"}, {read, "read"}});
-  bool first = true;
+      {{executable, "X"}, {write, "W"}, {read, "R"}});
   for (auto &&[val, name] : all_flags) {
     if (bool(f & val)) {
-      if (!first)
-        result += " | ";
-      else
-        first = false;
       result += name;
     }
   }
+  return result;
 }
 } // namespace ph
 
