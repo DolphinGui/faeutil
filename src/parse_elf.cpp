@@ -64,7 +64,7 @@ elf::file elf::parse_buffer(std::span<uint8_t> buffer) {
           .sh_str_index = tail.section_str_index,
           .sections = headers | read_header | ranges::to<std::vector>,
           .program_headers =
-              std::vector(program_start, program_start + tail.sh_num),
+              std::vector(program_start, program_start + tail.ph_num),
           .name_map = std::move(name_map)};
 }
 
