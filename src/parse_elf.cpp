@@ -52,7 +52,7 @@ elf::file elf::parse_buffer(std::span<uint8_t> buffer) {
           .e_version = head.e_version,
           .entry_point = body.entry_point,
           .flags = tail.flags,
-          .section_str_index = tail.section_str_index,
+          .sh_str_index = tail.section_str_index,
           .sections = headers | read_header | ranges::to<std::vector>,
           .program_headers =
               std::vector(program_start, program_start + tail.sh_num)};

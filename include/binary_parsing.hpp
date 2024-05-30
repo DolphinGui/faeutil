@@ -1,10 +1,12 @@
 #pragma once
 
+#include <concepts>
 #include <cstdint>
 #include <cstring>
 #include <span>
 #include <stdexcept>
 #include <type_traits>
+#include <vector>
 
 template <typename T>
 concept trivially_copyable = std::is_trivially_copyable_v<T>;
@@ -28,3 +30,20 @@ struct Reader {
     return result;
   }
 };
+
+template <std::invocable<void *, size_t> Callback> struct Writer {
+  Callback callback;
+  Writer(Callback c) : callback(std::move(c)) {}
+  template <trivially_copyable T, size_t extent>
+  void write(std::span<T, extent> data) {
+    callback(data.data(), data.size_bytes());
+  }
+};
+
+inline auto write_vector(std::vector<uint8_t> &vec) {
+  return Writer([&](void *data, size_t size) {
+    auto begin = vec.end().base();
+    vec.resize(vec.size() + size);
+    std::memcpy(begin, data, size);
+  });
+}
