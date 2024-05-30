@@ -134,7 +134,7 @@ struct relocatable_t {
     // yes this leaks memory
     // no I literally do not care. this program is expected to be very short
     // lived
-    auto n = new relocatable_t(consume_ptr(ptr, encoding).val, offset);
+    auto n = new relocatable_t(consume_ptr(ptr, encoding), offset);
     return n;
   }
 

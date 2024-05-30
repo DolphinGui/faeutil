@@ -339,7 +339,7 @@ void parse_cie(Dwarf_CIE const &cie, Dwarf_Off offset,
       case 'P': {
         auto personality_encoding = consume<uint8_t>(&ptr);
         result.personality_encoding = personality_encoding;
-        result.personality = consume_ptr(&ptr, personality_encoding);
+        result.personality.val = consume_ptr(&ptr, personality_encoding);
       } break;
       case 'R':
         result.fde_ptr_encoding = consume<uint8_t>(&ptr);
@@ -367,15 +367,15 @@ void parse_fde(Dwarf_Off offset, std::unordered_map<uint64_t, Aug> &cies,
   auto cie_offset = fde_offset - consume<uint32_t>(&ptr);
   auto &cie = cies.at(cie_offset);
   auto p = ptr - segment_begin;
-  f.begin = consume_ptr(&ptr, cie.fde_ptr_encoding);
+  f.begin.val = consume_ptr(&ptr, cie.fde_ptr_encoding, address + p);
   if (f.begin.pc_rel) {
     f.begin.val += address + p; // this probably needs to be refactored better
   }
-  f.range = consume_ptr(&ptr, cie.fde_ptr_encoding);
+  f.range.val = consume_ptr(&ptr, cie.fde_ptr_encoding);
   if (cie.personality_encoding != DW_EH_PE_omit) {
     std::size_t lsda_len{};
     ptr += bfs::DecodeLeb128(ptr, 4, &lsda_len);
-    f.lsda = consume_ptr(&ptr, cie.personality_encoding);
+    f.lsda.val = consume_ptr(&ptr, cie.personality_encoding);
   }
   f.frame = parse_cfi({cie.begin_instruction, cie.end_instruction},
                       {ptr, length + fde_offset + segment_begin});

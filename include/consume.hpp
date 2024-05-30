@@ -25,10 +25,11 @@ struct dwarf_ptr {
   bool pc_rel{}, text_rel{}, data_rel{}, func_rel{}, aligned{};
 };
 
-inline dwarf_ptr consume_ptr(const uint8_t **ptr, uint8_t encoding) {
+inline int64_t consume_ptr(const uint8_t **ptr, uint8_t encoding,
+                           uint64_t base_pc = 0) {
   dwarf_ptr result;
   if (encoding & DW_EH_PE_pcrel)
-    result.pc_rel = true;
+    result.val = base_pc;
   if (encoding & DW_EH_PE_textrel)
     result.text_rel = true;
   if (encoding & DW_EH_PE_datarel)
@@ -40,34 +41,37 @@ inline dwarf_ptr consume_ptr(const uint8_t **ptr, uint8_t encoding) {
 
   switch (encoding & 0x0f) {
   case DW_EH_PE_absptr:
-    result.val = consume<uint32_t>(ptr);
-    return result;
+    result.val += consume<uint32_t>(ptr);
+    return result.val;
   case DW_EH_PE_udata2:
-    result.val = consume<uint16_t>(ptr);
-    return result;
+    result.val += consume<uint16_t>(ptr);
+    return result.val;
   case DW_EH_PE_udata4:
-    result.val = consume<uint32_t>(ptr);
-    return result;
+    result.val += consume<uint32_t>(ptr);
+    return result.val;
   case DW_EH_PE_udata8:
-    result.val = consume<uint64_t>(ptr);
-    return result;
+    result.val += consume<uint64_t>(ptr);
+    return result.val;
   case DW_EH_PE_uleb128:
     uint64_t r;
     ptr += bfs::DecodeLeb128<uint64_t>(*ptr, 12, &r);
-    result.val = r;
-    return result;
+    result.val += r;
+    return result.val;
   case DW_EH_PE_sdata2:
-    result.val = consume<int16_t>(ptr);
-    return result;
+    result.val += consume<int16_t>(ptr);
+    return result.val;
   case DW_EH_PE_sdata4:
-    result.val = consume<int32_t>(ptr);
-    return result;
+    result.val += consume<int32_t>(ptr);
+    return result.val;
   case DW_EH_PE_sdata8:
-    result.val = consume<int64_t>(ptr);
-    return result;
-  case DW_EH_PE_sleb128:
-    ptr += bfs::DecodeLeb128(*ptr, 12, &result.val);
-    return result;
+    result.val += consume<int64_t>(ptr);
+    return result.val;
+  case DW_EH_PE_sleb128: {
+    int64_t r{};
+    ptr += bfs::DecodeLeb128(*ptr, 12, &r);
+    result.val += r;
+    return result.val;
+  }
   default:
     throw std::runtime_error(
         fmt::format("Unknown DWARF encoding: {:#0x}", encoding));
