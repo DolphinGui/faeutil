@@ -78,6 +78,8 @@ std::vector<uint8_t> elf::serialize(file f) {
       size = new_size;
     }
   }
+  auto alignment = f.format == elf_class::e32 ? alignof(u32) : alignof(u64);
+  size += alignment - (size % alignment);
   auto ph_size = f.program_headers.size() * sizeof(elf::program_header);
   auto sh_size = f.sections.size() * sizeof(elfp::section_header);
   size += f.header_size() + sh_size + ph_size;
