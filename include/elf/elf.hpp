@@ -1,11 +1,12 @@
 #pragma once
 
 #include "elf/types.hpp"
-#include <fmt/core.h>
 #include <cstdint>
+#include <fmt/core.h>
 #include <span>
 #include <stdexcept>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace elf {
@@ -20,6 +21,7 @@ struct section {
   u32 info;
   u32 alignment;
   u32 entry_size;
+  bool operator==(section const &o) const noexcept = default;
 };
 
 struct file {
@@ -34,8 +36,17 @@ struct file {
   u64 entry_point;
   u32 flags;
   u16 sh_str_index;
+  u32 header_size() const noexcept {
+    switch (format) {
+    case e32:
+      return 52;
+    case e64:
+      return 64;
+    }
+  }
   std::vector<section> sections;
   std::vector<program_header> program_headers;
+  std::unordered_map<std::string_view, uint32_t> name_map;
 
   inline section &get_section(u32 index) { return sections.at(index); }
   inline section &get_section(std::string_view name) {
@@ -46,6 +57,7 @@ struct file {
     }
     throw std::out_of_range(fmt::format("Section {} not found", name));
   }
+  bool operator==(file const &o) const noexcept = default;
 };
 
 file parse_buffer(std::span<uint8_t>);

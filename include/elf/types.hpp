@@ -233,5 +233,6 @@ struct program_header {
   u32 mem_size;
   ph::flags flags;
   u32 alignment;
+  bool operator==(program_header const &) const = default;
 };
 } // namespace elf

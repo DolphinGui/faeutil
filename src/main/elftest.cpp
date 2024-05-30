@@ -1,4 +1,5 @@
 #include "elf/elf.hpp"
+#include "elf/types.hpp"
 #include "external/ctre/ctre.hpp"
 #include "external/scope_guard.hpp"
 #include <cassert>
@@ -25,6 +26,17 @@ auto read_file(std::string_view path) {
   fread(result.data(), 1, result.size(), f);
   return result;
 }
+
+void write_file(std::span<uint8_t> buffer) {
+  auto f = fopen("a.out", "wb");
+  auto guard = sg::make_scope_guard([&]() { fclose(f); });
+  fwrite(buffer.data(), 1, buffer.size_bytes(), f);
+}
+template <typename T> std::span<uint8_t> to_binspan(std::span<T> span) {
+  return std::span<uint8_t>(reinterpret_cast<uint8_t *>(span.data()),
+                            span.size() * sizeof(T));
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -32,14 +44,23 @@ int main(int argc, char **argv) {
   assert(ctre::match<R"(.+(:?\.o|\.elf))">(argv[1]));
   auto file = read_file(argv[1]);
   auto elf = elf::parse_buffer(file);
+
+  auto result = elf::serialize(elf);
+  auto r = to_binspan(std::span(result));
+  write_file(r);
+
+  // fmt::println("bit parity: {}", l == r);
+  fmt::println("parse parity: {}", elf == elf::parse_buffer(r));
   fmt::println("total size: {}", file.size());
   fmt::println("file first few bytes: {}", std::span(file).subspan(0, 8));
   fmt::println("format: {}, endian: {}, abi: {}, type: {}, machine: {}",
                elf.format, elf.endian, elf.abi, elf.type, elf.machine);
+  fmt::println("name offsets: {}", elf.name_map);
   fmt::println("There are 18 section headers, starting at offset 0x151fec:\n");
-  fmt::println("Section Headers:\n"
-               "  [Nr] Name              Type            Addr     Off    Size   "
-               "ES Flg Lk Inf Al");
+  fmt::println(
+      "Section Headers:\n"
+      "  [Nr] Name              Type            Addr     Off    Size   "
+      "ES Flg Lk Inf Al");
   int i = 0;
   for (auto &sh : elf.sections) {
     fmt::println(

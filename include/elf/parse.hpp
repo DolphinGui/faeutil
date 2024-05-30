@@ -1,8 +1,8 @@
 #pragma once
 
+#include "elf.h"
 #include "elf/types.hpp"
 #include <concepts>
-#include "elf.h"
 
 #define def_enum()
 
@@ -10,13 +10,14 @@ namespace elf {
 namespace parse {
 
 struct header {
-  u8 header[4] = {0x7f, 'E', 'L', 'F'};
+  constexpr static std::array<u8, 4> default_magic = {0x7f, 'E', 'L', 'F'};
+  std::array<u8, 4> magic = default_magic;
   elf_class format;
   endianess endian;
   u8 ei_version = 1;
   os_abi abi;
   u8 abi_version;
-  u8 padding[7];
+  u8 padding[7]{};
   file_type type;
   machine_type machine;
   u32 e_version = 1;

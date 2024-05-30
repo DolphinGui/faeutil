@@ -31,19 +31,26 @@ struct Reader {
   }
 };
 
-template <std::invocable<void *, size_t> Callback> struct Writer {
+template <std::invocable<const void *, size_t> Callback> struct Writer {
   Callback callback;
+  size_t bytes_written = 0;
   Writer(Callback c) : callback(std::move(c)) {}
   template <trivially_copyable T, size_t extent>
   void write(std::span<T, extent> data) {
     callback(data.data(), data.size_bytes());
+    bytes_written += data.size_bytes();
+  }
+  template <trivially_copyable T> void write(T const &data) {
+    callback(&data, sizeof(T));
+    bytes_written += sizeof(T);
   }
 };
 
-inline auto write_vector(std::vector<uint8_t> &vec) {
-  return Writer([&](void *data, size_t size) {
+inline auto write_vector(auto &vec) {
+  return Writer([&](const void *data, size_t size) {
     auto begin = vec.end().base();
-    vec.resize(vec.size() + size);
+    using T = std::decay_t<decltype(*vec.data())>;
+    vec.resize((vec.size() * sizeof(T) + size) / sizeof(T));
     std::memcpy(begin, data, size);
   });
 }
