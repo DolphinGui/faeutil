@@ -1,6 +1,6 @@
 #pragma once
 
-#include "elf_types.hpp"
+#include "elf/types.hpp"
 #include <array>
 #include <concepts>
 #include <string>

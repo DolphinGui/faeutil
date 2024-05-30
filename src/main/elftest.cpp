@@ -1,6 +1,4 @@
-#include "elf.hpp"
-#include "binary_parsing.hpp"
-#include "elf_parse.hpp"
+#include "elf/elf.hpp"
 #include "external/ctre/ctre.hpp"
 #include "external/scope_guard.hpp"
 #include <cassert>

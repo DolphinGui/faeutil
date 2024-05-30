@@ -1,7 +1,7 @@
 #include "binary_parsing.hpp"
-#include "elf.hpp"
-#include "elf_parse.hpp"
-#include "elf_types.hpp"
+#include "elf/elf.hpp"
+#include "elf/parse.hpp"
+#include "elf/types.hpp"
 
 #include <range/v3/range/conversion.hpp>
 #include <ranges>
