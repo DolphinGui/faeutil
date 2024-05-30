@@ -367,8 +367,8 @@ void parse_fde(Dwarf_Off offset, std::unordered_map<uint64_t, Aug> &cies,
   auto cie_offset = fde_offset - consume<uint32_t>(&ptr);
   auto &cie = cies.at(cie_offset);
   auto p = ptr - segment_begin;
-  f.begin = consume_ptr(&ptr, cie.fde_ptr_encoding, address + p);
-  f.range = consume_ptr(&ptr, cie.fde_ptr_encoding);
+  f.begin = consume_ptr(&ptr, cie.fde_ptr_encoding, {.pc = address + p});
+  f.range = consume_ptr(&ptr, cie.fde_ptr_encoding & 0b0000'1111);
   if (cie.personality_encoding != DW_EH_PE_omit) {
     std::size_t lsda_len{};
     ptr += bfs::DecodeLeb128(ptr, 4, &lsda_len);
