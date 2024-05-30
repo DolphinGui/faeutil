@@ -32,6 +32,7 @@ elf::file elf::parse_buffer(std::span<uint8_t> buffer) {
         .type = sh.type,
         .flags = sh.flags,
         .address = sh.address,
+        .file_offset = sh.offset,
         .data = std::vector<uint8_t>(data_start, data_start + sh.size),
         .link = sh.link,
         .info = sh.info,

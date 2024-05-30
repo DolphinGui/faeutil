@@ -14,6 +14,7 @@ struct section {
   sh::type type;
   sh::flags flags;
   u32 address;
+  u32 file_offset;
   std::vector<uint8_t> data;
   u32 link;
   u32 info;
