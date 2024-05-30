@@ -166,7 +166,7 @@ inline bool operator==(unwind_info const &lhs,
 }
 
 struct frame {
-  dwarf_ptr begin{}, range{}, lsda{};
+  int64_t begin{}, range{}, lsda{};
   unwind_info frame;
 };
 

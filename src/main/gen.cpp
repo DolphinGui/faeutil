@@ -98,12 +98,12 @@ auto to_entry(std::unordered_map<unwind_ref, unwind_range> const &mapping,
     if (f.frame.cfa_register != 28 && f.frame.cfa_register != 32) {
       throw std::runtime_error("CFA_register is not r28 or r32!");
     }
-    return fae::table_entry{.pc_begin = cast16(f.begin.val),
-                            .pc_end = cast16(f.begin.val + f.range.val),
+    return fae::table_entry{.pc_begin = cast16(f.begin),
+                            .pc_end = cast16(f.begin + f.range),
                             .data = cast16(range.data + data_offset),
                             .frame_reg = cast8(f.frame.cfa_register),
                             .length = range.size,
-                            .lsda = cast16(f.lsda.val)};
+                            .lsda = cast16(f.lsda)};
   });
 }
 
