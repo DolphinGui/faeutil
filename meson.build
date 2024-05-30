@@ -18,6 +18,14 @@ obj_util = static_library(
   dependencies: [dwarf, elf, fmt, ranges],
 )
 
+
+elf_parse = static_library(
+  'elf_parse',
+  'src/parse_elf.cpp',
+  include_directories: include_directories('include'),
+  dependencies: [fmt, ranges],
+)
+
 executable(
   'faegen',
   'src/main/gen.cpp',
@@ -34,6 +42,14 @@ executable(
   link_with: [obj_util],
   include_directories: include_directories('include'),
   install: true,
+)
+
+executable(
+  'elftest',
+  'src/main/elftest.cpp',
+  dependencies: [fmt, ranges],
+  link_with: [elf_parse],
+  include_directories: include_directories('include'),
 )
 
 install_data(
