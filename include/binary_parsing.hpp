@@ -6,7 +6,6 @@
 #include <span>
 #include <stdexcept>
 #include <type_traits>
-#include <vector>
 
 template <typename T>
 concept trivially_copyable = std::is_trivially_copyable_v<T>;
