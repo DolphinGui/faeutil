@@ -8,6 +8,7 @@
 #include <functional>
 #include <libelf.h>
 #include <limits>
+#include <map>
 #include <stdexcept>
 #include <unordered_map>
 

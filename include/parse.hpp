@@ -1,15 +1,11 @@
 #pragma once
 
-#include "avr_reloc.hpp"
-#include "consume.hpp"
 
 #include <algorithm>
 #include <cstdint>
 #include <elf.h>
 #include <external/generator.hpp>
-#include <functional>
 #include <libelf.h>
-#include <map>
 #include <ranges>
 #include <span>
 #include <stdexcept>
@@ -120,37 +116,6 @@ template <Elf_Type type = ELF_T_BYTE, std::ranges::sized_range Input,
 size_t write_section(ObjectFile &o, size_t index, Input input) {
   return write_section(elf_getscn(o.elf, index), input);
 }
-
-struct relocatable_t {
-  uint32_t symbol_index{};
-  avr::reloc_type type{};
-  int64_t default_value{};
-  int32_t addend{};
-  uint32_t offset{};
-
-  static relocatable_t *make(const uint8_t **ptr, uint8_t encoding,
-                             const uint8_t *const begin) {
-    auto offset = *ptr - begin;
-    // yes this leaks memory
-    // no I literally do not care. this program is expected to be very short
-    // lived
-    auto n = new relocatable_t(consume_ptr(ptr, encoding), offset);
-    return n;
-  }
-
-  static inline std::unordered_map<uint64_t,
-                                   std::reference_wrapper<relocatable_t>>
-      index{};
-
-private:
-  relocatable_t(uint32_t value, uint32_t offset)
-      : default_value(value), offset{offset} {
-    if (index.contains(offset))
-      throw std::runtime_error("relocatable already found!");
-    index.insert({offset, std::ref(*this)});
-  }
-};
-using relocatable = std::reference_wrapper<relocatable_t>;
 
 struct unwind_info {
   std::unordered_map<uint32_t, int64_t> register_offsets;

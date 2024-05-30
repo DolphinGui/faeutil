@@ -1,6 +1,5 @@
 #include "parse.hpp"
 
-#include "avr_reloc.hpp"
 #include "consume.hpp"
 #include "external/ctre/ctre.hpp"
 #include "external/leb128.hpp"
@@ -17,7 +16,6 @@
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <libelf.h>
-#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string_view>
@@ -378,8 +376,7 @@ void parse_fde(Dwarf_Off offset, std::unordered_map<uint64_t, Aug> &cies,
                       {ptr, length + fde_offset + segment_begin});
 }
 
-std::vector<frame> parse_eh(ObjectFile &o, Elf_Data *eh,
-                            std::span<Elf32_Rela> eh_reloc, uint64_t address) {
+std::vector<frame> parse_eh(ObjectFile &o, Elf_Data *eh, uint64_t address) {
   CHECK_DECL(auto *n = elf32_getehdr(o.elf);, !n);
   CHECK_DECL(auto cfi = dwarf_getcfi_elf(o.elf), !cfi);
   Dwarf_Off offset{};
@@ -400,17 +397,6 @@ std::vector<frame> parse_eh(ObjectFile &o, Elf_Data *eh,
     }
     offset = next_offset;
   }
-
-  for (auto &reloc : eh_reloc) {
-    if (relocatable_t::index.contains(reloc.r_offset)) {
-      using namespace avr;
-      auto &r = relocatable_t::index.at(reloc.r_offset).get();
-      r.symbol_index = r_sym(reloc.r_info);
-      r.type = r_type(reloc.r_info);
-      r.addend = reloc.r_addend;
-    }
-  }
-
   return frames;
 }
 
@@ -418,8 +404,5 @@ std::vector<frame> parse_eh(ObjectFile &o, Elf_Data *eh,
 
 std::vector<frame> parse_object(ObjectFile &o) {
   auto n = get_sections(o);
-  return parse_eh(o, n.frame_sections,
-                  {reinterpret_cast<Elf32_Rela *>(n.frame_relocations.b.data()),
-                   n.frame_relocations.b.size() / sizeof(Elf32_Rela)},
-                  n.address);
+  return parse_eh(o, n.frame_sections, n.address);
 }
