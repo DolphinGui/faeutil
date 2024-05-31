@@ -3,7 +3,7 @@
 #include "elf/parse.hpp"
 #include "elf/types.hpp"
 
-#include <range/v3/range/conversion.hpp>
+#include <iterator>
 #include <ranges>
 
 namespace elfp = elf::parse;
@@ -50,6 +50,9 @@ elf::file elf::parse_buffer(std::span<uint8_t> buffer) {
 
   auto program_start =
       reinterpret_cast<program_header *>(buffer.data() + body.program_offset);
+  std::vector<section> sections;
+  sections.reserve(headers.size());
+  std::ranges::copy(headers | read_header, std::back_inserter(sections));
 
   return {.format = head.format,
           .endian = head.endian,
@@ -62,7 +65,7 @@ elf::file elf::parse_buffer(std::span<uint8_t> buffer) {
           .entry_point = body.entry_point,
           .flags = tail.flags,
           .sh_str_index = tail.section_str_index,
-          .sections = headers | read_header | ranges::to<std::vector>,
+          .sections = std::move(sections),
           .program_headers =
               std::vector(program_start, program_start + tail.ph_num),
           .name_map = std::move(name_map)};
