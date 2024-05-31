@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <err.h>
 #include <fcntl.h>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
