@@ -78,6 +78,7 @@ std::vector<uint8_t> elf::serialize(file f) {
       size = new_size;
     }
   }
+  size_t sh_begin_offset = size;
   auto alignment = f.format == elf_class::e32 ? alignof(u32) : alignof(u64);
   size += alignment - (size % alignment);
   auto ph_size = f.program_headers.size() * sizeof(elf::program_header);
@@ -96,14 +97,13 @@ std::vector<uint8_t> elf::serialize(file f) {
                             .e_version = f.e_version});
   if (f.format == elf::e32) {
     writer.write(elfp::body32{
-        .entry_point = static_cast<unsigned int>(f.entry_point),
+        .entry_point = static_cast<u32>(f.entry_point),
         .program_offset = f.program_headers.empty() ? 0 : f.header_size(),
-        .section_offset = static_cast<unsigned int>(
-            size - f.sections.size() * sizeof(elfp::section_header))});
+        .section_offset = static_cast<u32>(sh_begin_offset)});
   } else {
     writer.write(elfp::body64{.entry_point = f.entry_point,
                               .program_offset = f.header_size(),
-                              .section_offset = size - sh_size});
+                              .section_offset = sh_begin_offset});
   }
   writer.write(elfp::header_tail{
       .flags = f.flags,
@@ -118,7 +118,7 @@ std::vector<uint8_t> elf::serialize(file f) {
   result.resize(size, 0);
 
   auto *headers =
-      reinterpret_cast<elfp::section_header *>((result.end() - sh_size).base());
+      reinterpret_cast<elfp::section_header *>(result.data() + sh_begin_offset);
 
   for (auto &sh : f.sections) {
     if (!sh.data.empty())

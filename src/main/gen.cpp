@@ -109,7 +109,7 @@ auto to_entry(std::unordered_map<unwind_ref, unwind_range> const &mapping,
   });
 }
 
-constexpr auto shtab = "\0.shstrtab\0.fae_data"sv;
+constexpr auto shtab = "\0.shstrtab\0.fae_data\0\0"sv;
 elf::file create_obj(elf::u32 flags) {
   elf::file r{.format = elf::e32,
               .endian = elf::little,
