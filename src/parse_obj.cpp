@@ -3,21 +3,14 @@
 #include "parse.hpp"
 
 #include "consume.hpp"
-#include "external/ctre/ctre.hpp"
-#include "external/leb128.hpp"
-#include <array>
 #include <cassert>
-#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <elf.h>
-#include <elfutils/libdw.h>
 #include <err.h>
 #include <fcntl.h>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
-#include <libelf.h>
 #include <span>
 #include <stdexcept>
 #include <string_view>

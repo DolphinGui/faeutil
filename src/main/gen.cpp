@@ -6,7 +6,6 @@
 #include <cstdio>
 #include <fmt/ranges.h>
 #include <functional>
-#include <libelf.h>
 #include <limits>
 #include <map>
 #include <ranges>

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "elf.h"
 #include "elf/types.hpp"
 #include <concepts>
 

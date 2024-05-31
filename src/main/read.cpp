@@ -3,10 +3,8 @@
 #include "fae.hpp"
 #include "io.hpp"
 #include <cassert>
-#include <elf.h>
 #include <fmt/ranges.h>
 #include <iterator>
-#include <libelf.h>
 #include <stdexcept>
 
 namespace {
