@@ -30,7 +30,7 @@ executable(
   'faegen',
   'src/main/gen.cpp',
   dependencies: [elf, fmt, ranges],
-  link_with: [obj_util],
+  link_with: [obj_util, elf_parse],
   include_directories: include_directories('include'),
   install: true,
 )
@@ -39,7 +39,7 @@ executable(
   'readfae',
   'src/main/read.cpp',
   dependencies: [elf, fmt, ranges],
-  link_with: [obj_util],
+  link_with: [obj_util, elf_parse],
   include_directories: include_directories('include'),
   install: true,
 )

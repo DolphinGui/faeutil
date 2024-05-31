@@ -13,16 +13,21 @@ namespace elf {
 struct section {
   std::string name;
   sh::type type;
-  sh::flags flags;
-  u32 address;
+  sh::flags flags = {};
+  u32 address = 0;
   u32 file_offset;
   std::vector<uint8_t> data;
-  u32 link;
-  u32 info;
-  u32 alignment;
-  u32 entry_size;
+  u32 link = 0;
+  u32 info = 0;
+  u32 alignment = 1;
+  u32 entry_size = 0;
   bool operator==(section const &o) const noexcept = default;
 };
+const section null_section = {.name = "",
+                              .type = {},
+                              .file_offset = 0,
+                              .data = {},
+                              .alignment = 0};
 
 struct file {
   elf_class format;
@@ -36,7 +41,7 @@ struct file {
   u64 entry_point;
   u32 flags;
   u16 sh_str_index;
-  u32 header_size() const noexcept {
+  u32 header_size() const {
     switch (format) {
     case e32:
       return 52;
@@ -45,9 +50,9 @@ struct file {
     }
     throw std::logic_error("Unknown elf_class enumeration");
   }
-  std::vector<section> sections;
+  std::vector<section> sections = {null_section};
   std::vector<program_header> program_headers;
-  std::unordered_map<std::string_view, uint32_t> name_map;
+  std::unordered_map<std::string_view, uint32_t> name_map = {{"", 0}};
 
   inline section &get_section(u32 index) { return sections.at(index); }
   inline section &get_section(std::string_view name) {

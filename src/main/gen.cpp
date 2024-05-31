@@ -1,6 +1,5 @@
+#include "elf/elf.hpp"
 #include "external/ctre/ctre.hpp"
-#include "external/leb128.hpp"
-#include "external/scope_guard.hpp"
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
@@ -9,13 +8,15 @@
 #include <libelf.h>
 #include <limits>
 #include <map>
+#include <ranges>
 #include <stdexcept>
 #include <unordered_map>
 
 #include "fae.hpp"
+#include "io.hpp"
 #include "parse.hpp"
 
-using unwind_ref = std::reference_wrapper<const unwind_info>;
+using unwind_ref = std::reference_wrapper<const callstack>;
 template <> struct std::hash<unwind_ref> {
   std::size_t operator()(unwind_ref map) const noexcept {
     size_t hash = 0;
@@ -33,7 +34,6 @@ template <> struct std::hash<unwind_ref> {
 
 namespace {
 using namespace std::string_view_literals;
-constexpr auto section_names = ".fae_data\0"sv;
 
 uint16_t cast16(int64_t i) {
   if (i > std::numeric_limits<uint16_t>::max()) {
@@ -95,49 +95,69 @@ auto to_entry(std::unordered_map<unwind_ref, unwind_range> const &mapping,
               uint32_t data_offset) {
 
   return std::views::transform([&, data_offset](frame &f) {
-    auto range = mapping.at(std::cref(f.frame));
-    if (f.frame.cfa_register != 28 && f.frame.cfa_register != 32) {
+    auto range = mapping.at(std::cref(f.stack));
+    if (f.stack.cfa_register != 28 && f.stack.cfa_register != 32) {
       throw std::runtime_error("CFA_register is not r28 or r32!");
     }
     return fae::table_entry{.pc_begin = cast16(f.begin),
                             .pc_end = cast16(f.begin + f.range),
                             .data = cast16(range.data + data_offset),
-                            .frame_reg = cast8(f.frame.cfa_register),
+                            .frame_reg = cast8(f.stack.cfa_register),
                             .length = range.size,
                             .lsda = cast16(f.lsda)};
   });
 }
 
-void create_fae_obj(ObjectFile &obj, std::span<frame> frames) {
+elf::file create_obj(elf::u32 flags) {
+  elf::file r{.format = elf::e32,
+              .endian = elf::little,
+              .abi = elf::os_abi::sys_v,
+              .abi_version = 0,
+              .type = elf::rel,
+              .machine = elf::machine_type::avr,
+              .entry_point = 0,
+              .flags = flags,
+              .sh_str_index = 1,
+              .program_headers = {}};
+  constexpr auto data = "\0.shstrtab\0.fae_data\0"sv;
+  elf::section sh_str = {.name = "shstrtab",
+                         .type = elf::sh::str_tab,
+                         .flags = {},
+                         .file_offset = r.header_size(),
+                         .data = {data.begin(), data.end()}};
+  return r;
+}
+
+void create_fae_obj(elf::file &obj, std::span<frame> frames) {
   std::unordered_map<unwind_ref, unwind_range> offset_mapping;
   offset_mapping.reserve(frames.size());
-  for (auto &frame : frames) {
-    offset_mapping.insert({std::cref(frame.frame), {}});
+  for (auto &f : frames) {
+    offset_mapping.insert({std::cref(f.stack), {}});
   }
   auto unwind_data = create_data(offset_mapping);
-  auto text_size = get_scn_size(obj.find_scn(".text"));
+  auto text_size = obj.get_section(".text").data.size();
   uint32_t offset = text_size + frames.size() * sizeof(fae::table_entry) +
                     sizeof(fae::header);
   auto entries = frames | to_entry(offset_mapping, offset);
 
-  auto out_file = fopen("__fae_data.o", "w");
-  auto g = sg::make_scope_guard([&]() { fclose(out_file); });
-  auto out = ObjectFile(fileno_unlocked(out_file), section_names);
+  // auto out_file = fopen("__fae_data.o", "w");
+  // auto g = sg::make_scope_guard([&]() { fclose(out_file); });
+  // auto out = ObjectFile(fileno_unlocked(out_file), section_names);
 
-  Elf32_Shdr header{};
-  header.sh_name = out.get_section_offset(".fae_data");
-  header.sh_type = SHT_PROGBITS;
-  header.sh_flags = SHF_ALLOC;
-  header.sh_addr = text_size;
+  // Elf32_Shdr header{};
+  // header.sh_name = out.get_section_offset(".fae_data");
+  // header.sh_type = SHT_PROGBITS;
+  // header.sh_flags = SHF_ALLOC;
+  // header.sh_addr = text_size;
 
-  auto scn = out.make_section(header);
-  write_section(
-      out, scn,
-      std::array{fae::header{
-          .length = cast16(entries.size() * sizeof(fae::table_entry))}});
-  write_section(out, scn, entries);
-  write_section(out, scn, unwind_data);
-  out.update(true);
+  // auto scn = out.make_section(header);
+  // write_section(
+  //     out, scn,
+  //     std::array{fae::header{
+  //         .length = cast16(entries.size() * sizeof(fae::table_entry))}});
+  // write_section(out, scn, entries);
+  // write_section(out, scn, unwind_data);
+  // out.update(true);
 }
 } // namespace
 
@@ -145,10 +165,8 @@ int main(int argc, char **argv) {
   assert(argc == 2);
   assert(ctre::match<R"(.+(:?\.o|\.elf))">(argv[1]));
 
-  auto f = fopen(argv[1], "r+");
-  auto guard = sg::make_scope_guard([&]() { fclose(f); });
-  auto o = ObjectFile(fileno_unlocked(f));
+  auto n = read_file(argv[1]);
 
-  auto frames = parse_object(o);
-  create_fae_obj(o, frames);
+  auto frames = parse_object(n);
+  // create_fae_obj(o, frames);
 }

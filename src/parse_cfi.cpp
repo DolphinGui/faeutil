@@ -1,20 +1,24 @@
-#include "consume.hpp"
-#include "external/leb128.hpp"
+#include "binary_parsing.hpp"
 #include "parse.hpp"
 #include <cstdint>
 #include <dwarf.h>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <stdexcept>
+#include <type_traits>
 
 namespace {
 constexpr auto data_alignment = -1;
 
-void parse(unwind_info *out, const uint8_t **ptr) {
-  uint8_t inst = consume<uint8_t>(ptr);
+void parse(callstack *out, Reader& r) {
+  uint8_t inst = r.consume<uint8_t>();
   auto operand = [&](auto fake_arg) {
     decltype(fake_arg) offset{};
-    *ptr += bfs::DecodeLeb128<decltype(fake_arg)>(*ptr, 4, &offset);
+    if constexpr (std::is_signed_v<decltype(fake_arg)>) {
+      offset = r.consume_sleb();
+    } else {
+      offset = r.consume_uleb();
+    }
     return offset;
   };
   switch (inst & 0b11000000) {
@@ -50,21 +54,21 @@ void parse(unwind_info *out, const uint8_t **ptr) {
   case DW_CFA_nop:
     return;
   default:
-    throw std::runtime_error(fmt::format("unexpected DW_CFA value: {}", inst));
+    throw std::runtime_error(fmt::format("unexpected DW_CFA value: {:#04x}", inst));
   }
 }
 } // namespace
 
-unwind_info parse_cfi(std::span<const uint8_t> cfi_initial,
+callstack parse_cfi(std::span<const uint8_t> cfi_initial,
                       std::span<const uint8_t> fde_cfi) {
-  unwind_info result;
-  const uint8_t *ptr = cfi_initial.data();
-  while (ptr < cfi_initial.end().base()) {
-    parse(&result, &ptr);
+  callstack result;
+  auto data = Reader(cfi_initial);
+  while (!data.empty()) {
+    parse(&result, data);
   }
-  ptr = fde_cfi.data();
-  while (ptr < fde_cfi.end().base()) {
-    parse(&result, &ptr);
+  auto ptr = Reader(fde_cfi);
+  while (!ptr.empty()) {
+    parse(&result, ptr);
   }
   return result;
 }

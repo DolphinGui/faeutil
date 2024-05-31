@@ -1,25 +1,31 @@
 #pragma once
 
+#include "external/leb128.hpp"
 #include <concepts>
 #include <cstdint>
 #include <cstring>
 #include <span>
 #include <stdexcept>
 #include <type_traits>
+#include <vector>
 
 template <typename T>
 concept trivially_copyable = std::is_trivially_copyable_v<T>;
 
 struct Reader {
-  uint8_t *begin{}, *end{};
-  Reader(std::span<uint8_t> buffer_view)
-      : begin(buffer_view.data()), end(buffer_view.end().base()) {}
+  const uint8_t *begin{}, *end{};
+  size_t bytes_read = 0;
+  Reader(std::span<const uint8_t> buffer_view, size_t pos = 0)
+      : begin(buffer_view.data()), end(buffer_view.end().base()),
+        bytes_read(pos) {}
+
+  Reader subspan(uint64_t len) {
+    return Reader(std::span(begin, len), bytes_read);
+  }
 
   template <trivially_copyable T> T consume() {
-    if (begin >= end)
-      throw std::out_of_range("consuming ptr is out of bounds");
     T result = view<T>();
-    begin += sizeof(T);
+    increment(sizeof(T));
     return result;
   }
 
@@ -28,6 +34,45 @@ struct Reader {
     std::memcpy(&result, begin, sizeof(T));
     return result;
   }
+
+  std::string_view consume_cstr() {
+    auto n = std::memchr(begin, '\0', end - begin);
+    if (!n)
+      throw std::out_of_range("consume_str could not find a null character");
+    auto result = std::string_view(reinterpret_cast<const char *>(begin),
+                                   static_cast<const uint8_t *>(n) - begin);
+    increment(static_cast<const uint8_t *>(n) - begin + 1);
+    return result;
+  }
+
+  uint64_t consume_uleb() {
+    uint64_t result{};
+    increment(bfs::DecodeLeb128(begin, 4, &result));
+    return result;
+  }
+
+  int64_t consume_sleb() {
+    int64_t result{};
+    increment(bfs::DecodeLeb128(begin, 4, &result));
+    return result;
+  }
+
+  template <trivially_copyable T> std::vector<T> consume_vec(uint64_t size) {
+    std::vector<T> result;
+    result.resize(size);
+    std::memcpy(result.data(), begin, size * sizeof(T));
+    increment(size * sizeof(T));
+    return result;
+  }
+
+  void increment(uint64_t len) {
+    if (len + begin > end)
+      throw std::out_of_range("incremented out of range");
+    begin += len;
+    bytes_read += len;
+  }
+
+  bool empty() const noexcept { return begin >= end; }
 };
 
 template <std::invocable<const void *, size_t> Callback> struct Writer {

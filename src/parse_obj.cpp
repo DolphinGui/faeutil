@@ -1,9 +1,12 @@
+#include "binary_parsing.hpp"
+#include "elf/elf.hpp"
 #include "parse.hpp"
 
 #include "consume.hpp"
 #include "external/ctre/ctre.hpp"
 #include "external/leb128.hpp"
 #include <array>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -21,235 +24,6 @@
 #include <string_view>
 #include <sysexits.h>
 
-#define CHECK(a)                                                               \
-  do {                                                                         \
-    auto elferrnonumber = elf_errno();                                         \
-    if (a)                                                                     \
-      throw std::runtime_error(fmt::format("Error at {}:{}: {}", __LINE__,     \
-                                           __FILE__,                           \
-                                           m(elf_errmsg(elferrnonumber))));    \
-  } while (0)
-
-#define CHECK_DECL(a, cond)                                                    \
-  a;                                                                           \
-  do {                                                                         \
-    auto elferrnonumber = elf_errno();                                         \
-    if (cond)                                                                  \
-      throw std::runtime_error(fmt::format("CHECK_DECL failed at {}:{}: {}",   \
-                                           __LINE__, __FILE__,                 \
-                                           m(elf_errmsg(elferrnonumber))));    \
-  } while (0)
-
-#define THROW_IF(cond)                                                         \
-  do {                                                                         \
-    auto elferrnonumber = elf_errno();                                         \
-    if (cond)                                                                  \
-      throw std::runtime_error(                                                \
-          fmt::format("Assertion \"{}\" failed at {}:{}, {}", #cond, __LINE__, \
-                      __FILE__, m(elf_errmsg(elferrnonumber))));               \
-  } while (0)
-
-struct GlobalInitializer {
-  static GlobalInitializer &init() {
-    static GlobalInitializer initializer = {};
-    return initializer;
-  }
-
-  Elf *open_elf(int file_desc, bool init) {
-    if (init)
-      return elf_begin(file_desc, Elf_Cmd::ELF_C_WRITE, nullptr);
-    else
-      return elf_begin(file_desc, Elf_Cmd::ELF_C_RDWR, nullptr);
-  }
-
-private:
-  GlobalInitializer() {
-    if (elf_version(EV_CURRENT) == EV_NONE)
-      errx(EX_SOFTWARE, " ELF library initialization failed : %s ",
-           elf_errmsg(-1));
-  }
-};
-
-ObjectFile::ObjectFile(int file, bool assert_symtab, bool assert_strtab)
-    : file_desc(file), elf(GlobalInitializer::init().open_elf(file, false)) {
-  if (elf == nullptr)
-    throw std::runtime_error(
-        fmt::format("elf_begin() error: {}", elf_errmsg(-1)));
-
-  if (kind() != ELF_K_ELF)
-    throw std::runtime_error("Expected object file");
-
-  size_t section_max{};
-  CHECK(elf_getshdrnum(elf, &section_max));
-
-  CHECK(elf_getshdrstrndx(elf, &sh_strtab_index));
-  for (size_t i = 1; i != section_max; i++) {
-    using namespace std::string_view_literals;
-    CHECK_DECL(Elf_Scn *section = elf_getscn(elf, i), !section);
-    CHECK_DECL(Elf32_Shdr *header = elf32_getshdr(section), !header);
-    CHECK_DECL(auto name = elf_strptr(elf, sh_strtab_index, header->sh_name),
-               !name);
-    if (name == ".symtab"sv) {
-      symtab_index = i;
-    } else if (name == ".strtab"sv) {
-      strtab_index = i;
-    }
-  }
-  if (assert_symtab) {
-    THROW_IF(symtab_index == 0);
-  }
-  if (assert_strtab) {
-    THROW_IF(strtab_index == 0);
-  }
-}
-
-ObjectFile::ObjectFile(int file, std::string_view sh)
-    : file_desc(file), elf(GlobalInitializer::init().open_elf(file, true)) {
-  CHECK_DECL(auto ehdr = elf32_newehdr(elf), !ehdr);
-  ehdr->e_machine = EM_AVR;
-  ehdr->e_type = ET_REL;
-  ehdr->e_version = EV_CURRENT;
-  auto a =
-      std::to_array<char>({0x7f, 0x45, 0x4c, 0x46, 0x01, 0x01, 0x01, 0x00, 0x00,
-                           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
-  std::memcpy(ehdr->e_ident, a.data(), a.size());
-
-  using namespace std::string_literals;
-  std::string section_strings = "\0.shstrtab\0"s;
-  section_strings.append(sh);
-  CHECK_DECL(auto sh_strtab = elf_newscn(elf), !sh_strtab);
-  CHECK_DECL(auto str = elf_newdata(sh_strtab), !str);
-  ehdr->e_shstrndx = elf_ndxscn(sh_strtab);
-  sh_strtab_index = elf_ndxscn(sh_strtab);
-
-  str->d_size = section_strings.size() + 1;
-  str->d_buf = malloc(section_strings.size() + 1);
-  str->d_version = EV_CURRENT;
-  std::memcpy(str->d_buf, section_strings.data(), section_strings.size() + 1);
-
-  CHECK_DECL(auto header = elf32_getshdr(sh_strtab), !header);
-  header->sh_name = 1;
-  header->sh_type = SHT_STRTAB;
-  header->sh_flags = SHF_STRINGS;
-  update(false);
-}
-
-ObjectFile::~ObjectFile() {
-  elf_end(elf);
-  if (file_desc)
-    close(file_desc);
-}
-
-std::string_view ObjectFile::get_str(uint32_t offset) {
-  CHECK_DECL(auto result = elf_strptr(elf, strtab_index, offset), !result);
-  return result;
-}
-namespace {
-uint32_t get_offset(std::string_view name, Elf *elf, uint32_t str_index) {
-  uint32_t offset = 0;
-  Elf_Data *data{};
-  do {
-    data = elf_getdata(elf_getscn(elf, str_index), data);
-    CHECK(elf_errno());
-    auto n =
-        std::string_view(static_cast<const char *>(data->d_buf), data->d_size);
-    auto result = n.find(name);
-    if (result != static_cast<size_t>(-1)) {
-      return offset + result;
-    }
-    offset += data->d_size;
-  } while (data != nullptr);
-  return 0;
-}
-} // namespace
-uint32_t ObjectFile::get_section_offset(std::string_view name) {
-  size_t sh_index{};
-  CHECK(elf_getshdrstrndx(elf, &sh_index));
-  return get_offset(name, elf, sh_index);
-}
-
-uint32_t ObjectFile::get_str_offset(std::string_view name) {
-  return get_offset(name, elf, strtab_index);
-}
-
-uint32_t ObjectFile::make_section(Elf32_Shdr header) {
-  CHECK_DECL(Elf_Scn *scn = elf_newscn(elf), !scn);
-  CHECK_DECL(Elf32_Shdr *h = elf32_getshdr(scn), !h);
-  *h = header;
-  uint32_t index = elf_ndxscn(scn);
-  CHECK(elf_errno());
-  return index;
-}
-
-uint32_t ObjectFile::find_index(std::string_view name) {
-  size_t section_max{};
-  CHECK(elf_getshdrnum(elf, &section_max));
-  for (size_t i = 1; i != section_max; i++) {
-    CHECK_DECL(Elf_Scn *section = elf_getscn(elf, i), !section);
-    CHECK_DECL(Elf32_Shdr *header = elf32_getshdr(section), !header);
-    CHECK_DECL(auto section_name =
-                   elf_strptr(elf, sh_strtab_index, header->sh_name),
-               !section_name);
-    if (section_name == name)
-      return i;
-  }
-  throw std::out_of_range("Section not found!");
-}
-
-Elf_Scn *ObjectFile::find_scn(std::string_view name) {
-  auto index = find_index(name);
-  CHECK_DECL(auto scn = elf_getscn(elf, index), !scn);
-  return scn;
-}
-
-void ObjectFile::update(bool write) {
-  if (write)
-    elf_update(elf, ELF_C_WRITE);
-  else
-    elf_update(elf, ELF_C_NULL);
-
-  auto err = elf_errno();
-  // this is unstable and probably depends on implementation
-  // I hate this
-  if (err != 42 && err != 0)
-    throw std::runtime_error(
-        fmt::format("Error at {}: {}", __LINE__, m(elf_errmsg(err))));
-}
-
-tl::generator<Elf_Scn *> ObjectFile::iterate_sections() {
-  size_t section_max{};
-  CHECK(elf_getshdrnum(elf, &section_max));
-  for (size_t i = 1; i != section_max; i++) {
-    CHECK_DECL(Elf_Scn *section = elf_getscn(elf, i), !section);
-    co_yield section;
-  }
-}
-
-Elf32_Sym &ObjectFile::get_sym(uint32_t index) {
-  CHECK_DECL(Elf_Scn *section = elf_getscn(this->elf, this->symtab_index),
-             !section);
-  Elf_Data *data{};
-  CHECK_DECL(data = elf_getdata(section, data), elf_errno());
-  THROW_IF(data->d_type != ELF_T_SYM);
-  // haha std::span still has no bounds checking
-  THROW_IF(index >= data->d_size / sizeof(Elf32_Sym));
-  return static_cast<Elf32_Sym *>(data->d_buf)[index];
-}
-
-std::string_view ObjectFile::get_section_name(uint32_t index) {
-  CHECK_DECL(auto section = elf_getscn(elf, index), !section);
-  CHECK_DECL(auto header = elf32_getshdr(section), !header);
-  CHECK_DECL(auto result = elf_strptr(elf, sh_strtab_index, header->sh_name),
-             !result);
-  return result;
-}
-
-uint32_t ObjectFile::get_section_number() {
-  size_t section_max{};
-  CHECK(elf_getshdrnum(elf, &section_max));
-  return section_max;
-}
-
 namespace {
 struct buffer {
   std::basic_string<uint8_t> b;
@@ -263,146 +37,101 @@ struct exception_sections {
   uint64_t address{};
 };
 
-exception_sections get_sections(ObjectFile &o) {
-
-  size_t section_max{};
-  CHECK(elf_getshdrnum(o.elf, &section_max));
-  using namespace std::string_view_literals;
-
-  exception_sections result;
-
-  size_t sh_strtab_index{};
-  CHECK(elf_getshdrstrndx(o.elf, &sh_strtab_index));
-  // This possibly copies a lot of data. If a lot of time/memory is being spent
-  // here, it may be worth it to move to a no-copy iterator type model.
-  for (size_t i = 1; i != section_max; i++) {
-    CHECK_DECL(Elf_Scn *section = elf_getscn(o.elf, i), !section);
-    CHECK_DECL(Elf32_Shdr *header = elf32_getshdr(section), !header);
-    CHECK_DECL(auto name = elf_strptr(o.elf, sh_strtab_index, header->sh_name),
-               !name);
-
-    auto copy_data = [&](buffer &section_map) {
-      Elf_Data *data{};
-      while (true) {
-        CHECK_DECL(data = elf_getdata(section, data), elf_errno());
-        if (!data)
-          break;
-        section_map.b.append(static_cast<uint8_t *>(data->d_buf), data->d_size);
-      }
-    };
-
-    if (ctre::match<R"(\.eh_frame.*)">(name)) {
-      CHECK_DECL(Elf_Data *data = elf_getdata(section, nullptr), elf_errno());
-      result.frame_sections = data;
-      result.address = header->sh_addr;
-    } else if (ctre::match<R"(\.rela\.eh_frame.*)">(name)) {
-      copy_data(result.frame_relocations);
-    } else if (ctre::match<R"(\.gcc_except_table.*)">(name)) {
-      copy_data(result.lsda_sections);
-    } else if (ctre::match<R"(\.rela\.gcc_except_table.*)">(name)) {
-      copy_data(result.lsda_sections);
-    }
-  }
-
-  if (!result.frame_sections) {
-    std::exit(1);
-  }
-
-  return result;
-}
-
 struct Aug {
-  uint8_t fde_aug_encoding{}, personality_encoding = DW_EH_PE_omit,
-                              fde_ptr_encoding{};
-  int64_t personality{};
+  uint8_t lsda_encoding = DW_EH_PE_omit, personality_encoding = DW_EH_PE_omit,
+          ptr_encoding = DW_EH_PE_omit;
+  int64_t personality{}, code_align{}, data_align{}, ret_addr_reg{};
   const uint8_t *begin_instruction{}, *end_instruction{};
 };
 
-void parse_cie(Dwarf_CIE const &cie, Dwarf_Off offset,
-               std::unordered_map<uint64_t, Aug> &cies) {
-  auto ptr = cie.augmentation_data;
-  auto aug = std::string_view(cie.augmentation);
-
+Aug parse_cie(Reader data) {
   Aug result{};
-  result.begin_instruction = cie.initial_instructions;
-  result.end_instruction = cie.initial_instructions_end;
-  if (aug.find('z') != std::string_view::npos)
+  auto version = data.consume<uint8_t>();
+  assert(version == 1 || version == 3);
+
+  auto aug = data.consume_cstr();
+  result.code_align = data.consume_uleb();
+  result.data_align = data.consume_sleb();
+  if (version == 1) {
+    result.ret_addr_reg = data.consume<uint8_t>();
+  } else {
+    result.ret_addr_reg = data.consume_uleb();
+  }
+
+  if (aug.find('z') != std::string_view::npos) {
+    uint64_t aug_len = data.consume_uleb();
+    auto aug_data = data.consume_vec<uint8_t>(aug_len);
+    auto aug_reader = Reader(aug_data);
     for (auto c : aug) {
       switch (c) {
       case 'z':
         continue;
       case 'L':
-        result.fde_aug_encoding = consume<uint8_t>(&ptr);
+        result.lsda_encoding = aug_reader.consume<uint8_t>();
         break;
       case 'P': {
-        auto personality_encoding = consume<uint8_t>(&ptr);
-        result.personality_encoding = personality_encoding;
-        result.personality = consume_ptr(&ptr, personality_encoding);
+        result.personality_encoding = aug_reader.consume<uint8_t>();
+        result.personality =
+            consume_ptr(aug_reader, result.personality_encoding);
       } break;
       case 'R':
-        result.fde_ptr_encoding = consume<uint8_t>(&ptr);
+        result.ptr_encoding = aug_reader.consume<uint8_t>();
         break;
       default:
         throw std::runtime_error("I'm not handling eh");
       }
     }
-  cies.insert({offset, std::move(result)});
+  }
+  result.begin_instruction = data.begin;
+  result.end_instruction = data.end;
+  return result;
 }
 
-void parse_fde(Dwarf_Off offset, std::unordered_map<uint64_t, Aug> &cies,
-               std::vector<frame> &frames, const uint8_t *const segment_begin,
-               uint64_t address) {
-  frames.push_back({});
-  frame &f = frames.back();
-  auto ptr = segment_begin + offset;
-  uint64_t length = consume<uint32_t>(&ptr);
-  if (length == 0xffffffff) {
-    length = consume<uint64_t>(&ptr);
+frame parse_fde(Reader r, Aug &cie, uint64_t base_pc) {
+  frame f = {};
+  f.begin = consume_ptr(r, cie.ptr_encoding, {.pc = base_pc + r.bytes_read});
+  f.range = consume_ptr(r, cie.ptr_encoding & 0b0000'1111,
+                        {.pc = base_pc + r.bytes_read});
+  if (cie.lsda_encoding != DW_EH_PE_omit) {
+    uint64_t _ = r.consume_uleb(); // lsda_len
+    // we don't actually know the function at this point in
+    //  time function base address is added when parsing in personality f.lsda =
+    f.lsda = consume_ptr(r, cie.lsda_encoding, {.func = 0});
   }
-  if (length == 0)
-    return;
-  auto fde_offset = ptr - segment_begin;
-  auto cie_offset = fde_offset - consume<uint32_t>(&ptr);
-  auto &cie = cies.at(cie_offset);
-  auto p = ptr - segment_begin;
-  f.begin = consume_ptr(&ptr, cie.fde_ptr_encoding, {.pc = address + p});
-  f.range = consume_ptr(&ptr, cie.fde_ptr_encoding & 0b0000'1111);
-  if (cie.personality_encoding != DW_EH_PE_omit) {
-    std::size_t lsda_len{};
-    ptr += bfs::DecodeLeb128(ptr, 4, &lsda_len);
-    f.lsda = consume_ptr(&ptr, cie.personality_encoding);
-  }
-  f.frame = parse_cfi({cie.begin_instruction, cie.end_instruction},
-                      {ptr, length + fde_offset + segment_begin});
+  f.stack =
+      parse_cfi({cie.begin_instruction, cie.end_instruction}, {r.begin, r.end});
+  return f;
 }
 
-std::vector<frame> parse_eh(ObjectFile &o, Elf_Data *eh, uint64_t address) {
-  CHECK_DECL(auto *n = elf32_getehdr(o.elf);, !n);
-  CHECK_DECL(auto cfi = dwarf_getcfi_elf(o.elf), !cfi);
-  Dwarf_Off offset{};
-  Dwarf_CFI_Entry entry{};
+std::vector<frame> parse_eh(std::span<uint8_t> o) {
+  elf::file e = elf::parse_buffer(o);
   std::unordered_map<uint64_t, Aug> cies;
   std::vector<frame> frames;
-  const uint8_t *const segment_begin = static_cast<const uint8_t *>(eh->d_buf);
-  while (offset != static_cast<Dwarf_Off>(-1)) {
-    if (offset >= eh->d_size)
+  auto section = e.get_section(".eh_frame");
+  auto data = Reader(section.data);
+  while (!data.empty()) {
+    auto pos = data.bytes_read;
+    uint64_t length = data.consume<uint32_t>();
+    if (length == 0)
       break;
-    Dwarf_Off next_offset{};
-    THROW_IF(dwarf_next_cfi(n->e_ident, eh, true, offset, &next_offset,
-                            &entry) == -1);
-    if (entry.CIE_id == DW_CIE_ID_64) {
-      parse_cie(entry.cie, offset, cies);
-    } else {
-      parse_fde(offset, cies, frames, segment_begin, address);
+    if (length == 0xffff'ffff) {
+      length = data.consume<uint64_t>();
     }
-    offset = next_offset;
+    int32_t cie_ptr = data.consume<int32_t>();
+    // this doesn't actually handle extended length properly, but hopefully
+    // nobody actually creates a hideously long CIE
+    if (cie_ptr == 0) {
+      cies.insert({pos, parse_cie(data.subspan(length - 4))});
+    } else {
+      auto cie_off = data.bytes_read - cie_ptr - sizeof(cie_ptr);
+      frames.push_back(parse_fde(data.subspan(length - 4), cies.at(cie_off),
+                                 section.address));
+    }
+    data.increment(length - sizeof(cie_ptr));
   }
   return frames;
 }
 
 } // namespace
 
-std::vector<frame> parse_object(ObjectFile &o) {
-  auto n = get_sections(o);
-  return parse_eh(o, n.frame_sections, n.address);
-}
+std::vector<frame> parse_object(std::span<uint8_t> o) { return parse_eh(o); }
