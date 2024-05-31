@@ -63,6 +63,7 @@ struct file {
     }
     throw std::out_of_range(fmt::format("Section {} not found", name));
   }
+
   bool operator==(file const &o) const noexcept = default;
 };
 

@@ -1,9 +1,11 @@
 #pragma once
 
 #include "external/leb128.hpp"
+#include <algorithm>
 #include <concepts>
 #include <cstdint>
 #include <cstring>
+#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <type_traits>
@@ -79,11 +81,13 @@ template <std::invocable<const void *, size_t> Callback> struct Writer {
   Callback callback;
   size_t bytes_written = 0;
   Writer(Callback c) : callback(std::move(c)) {}
-  template <trivially_copyable T, size_t extent>
-  void write(std::span<T, extent> data) {
-    callback(data.data(), data.size_bytes());
-    bytes_written += data.size_bytes();
+  void write(std::ranges::sized_range auto data) {
+    std::ranges::for_each(data,
+                          [&](auto const &f) { callback(&f, sizeof(f)); });
+    bytes_written +=
+        sizeof(std::ranges::range_value_t<decltype(data)>) * data.size();
   }
+
   template <trivially_copyable T> void write(T const &data) {
     callback(&data, sizeof(T));
     bytes_written += sizeof(T);

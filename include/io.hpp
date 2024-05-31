@@ -23,8 +23,8 @@ inline auto read_file(std::string_view path) {
   return result;
 }
 
-inline void write_file(std::span<uint8_t> buffer) {
-  auto f = fopen("a.out", "wb");
+inline void write_file(std::span<uint8_t> buffer, std::string_view output = "a.out") {
+  auto f = fopen(output.data(), "wb");
   auto guard = sg::make_scope_guard([&]() { fclose(f); });
   fwrite(buffer.data(), 1, buffer.size_bytes(), f);
 }

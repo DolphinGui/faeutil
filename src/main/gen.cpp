@@ -1,3 +1,4 @@
+#include "binary_parsing.hpp"
 #include "elf/elf.hpp"
 #include "external/ctre/ctre.hpp"
 #include <cassert>
@@ -108,6 +109,7 @@ auto to_entry(std::unordered_map<unwind_ref, unwind_range> const &mapping,
   });
 }
 
+constexpr auto shtab = "\0.shstrtab\0.fae_data"sv;
 elf::file create_obj(elf::u32 flags) {
   elf::file r{.format = elf::e32,
               .endian = elf::little,
@@ -118,46 +120,56 @@ elf::file create_obj(elf::u32 flags) {
               .entry_point = 0,
               .flags = flags,
               .sh_str_index = 1,
-              .program_headers = {}};
-  constexpr auto data = "\0.shstrtab\0.fae_data\0"sv;
-  elf::section sh_str = {.name = "shstrtab",
-                         .type = elf::sh::str_tab,
-                         .flags = {},
-                         .file_offset = r.header_size(),
-                         .data = {data.begin(), data.end()}};
+              .program_headers = {},
+              .name_map = {{"", 0},
+                           {".shstrtab", 1},
+                           {".fae_data", shtab.find(".fae_data")}}};
+  r.sections.reserve(3);
+  r.sections.push_back(elf::section{.name = ".shstrtab",
+                                    .type = elf::sh::str_tab,
+                                    .flags = elf::sh::strings,
+                                    .file_offset = r.header_size(),
+                                    .data = {shtab.begin(), shtab.end()}});
   return r;
+}
+
+elf::section create_fae_section(uint32_t addr, uint32_t offset,
+                                std::span<frame> frames, auto &unwind_data,
+                                auto &offset_mapping, uint32_t file_offset) {
+  auto entries = frames | to_entry(offset_mapping, offset);
+  std::vector<uint8_t> data;
+  data.reserve(sizeof(fae::header) + entries.size() * sizeof(fae::table_entry) +
+               unwind_data.size() * sizeof(unwind_data.front()));
+  auto writer = write_vector(data);
+  writer.write(
+      fae::header{.length = cast16(entries.size() * sizeof(fae::table_entry))});
+  writer.write(entries);
+  writer.write(unwind_data);
+  return {.name = ".fae_data",
+          .type = elf::sh::prog_bit,
+          .flags = elf::sh::alloc,
+          .address = addr,
+          .file_offset = file_offset,
+          .data = std::move(data),
+          .alignment = 2};
 }
 
 void create_fae_obj(elf::file &obj, std::span<frame> frames) {
   std::unordered_map<unwind_ref, unwind_range> offset_mapping;
   offset_mapping.reserve(frames.size());
-  for (auto &f : frames) {
+  for (auto const &f : frames) {
     offset_mapping.insert({std::cref(f.stack), {}});
   }
   auto unwind_data = create_data(offset_mapping);
   auto text_size = obj.get_section(".text").data.size();
   uint32_t offset = text_size + frames.size() * sizeof(fae::table_entry) +
                     sizeof(fae::header);
-  auto entries = frames | to_entry(offset_mapping, offset);
-
-  // auto out_file = fopen("__fae_data.o", "w");
-  // auto g = sg::make_scope_guard([&]() { fclose(out_file); });
-  // auto out = ObjectFile(fileno_unlocked(out_file), section_names);
-
-  // Elf32_Shdr header{};
-  // header.sh_name = out.get_section_offset(".fae_data");
-  // header.sh_type = SHT_PROGBITS;
-  // header.sh_flags = SHF_ALLOC;
-  // header.sh_addr = text_size;
-
-  // auto scn = out.make_section(header);
-  // write_section(
-  //     out, scn,
-  //     std::array{fae::header{
-  //         .length = cast16(entries.size() * sizeof(fae::table_entry))}});
-  // write_section(out, scn, entries);
-  // write_section(out, scn, unwind_data);
-  // out.update(true);
+  auto elf = create_obj(obj.flags);
+  elf.sections.push_back(
+      create_fae_section(text_size, offset, frames, unwind_data, offset_mapping,
+                         elf.header_size() + elf.get_section(1).data.size()));
+  auto data = elf::serialize(elf);
+  write_file(data, "__fae_data.o");
 }
 } // namespace
 
@@ -166,7 +178,8 @@ int main(int argc, char **argv) {
   assert(ctre::match<R"(.+(:?\.o|\.elf))">(argv[1]));
 
   auto n = read_file(argv[1]);
+  auto e = elf::parse_buffer(n);
 
   auto frames = parse_object(n);
-  // create_fae_obj(o, frames);
+  create_fae_obj(e, frames);
 }

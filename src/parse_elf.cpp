@@ -97,7 +97,7 @@ std::vector<uint8_t> elf::serialize(file f) {
   if (f.format == elf::e32) {
     writer.write(elfp::body32{
         .entry_point = static_cast<unsigned int>(f.entry_point),
-        .program_offset = f.header_size(),
+        .program_offset = f.program_headers.empty() ? 0 : f.header_size(),
         .section_offset = static_cast<unsigned int>(
             size - f.sections.size() * sizeof(elfp::section_header))});
   } else {
@@ -108,12 +108,13 @@ std::vector<uint8_t> elf::serialize(file f) {
   writer.write(elfp::header_tail{
       .flags = f.flags,
       .header_size = static_cast<u16>(f.header_size()),
-      .ph_size = static_cast<u16>(sizeof(elf::program_header)),
+      .ph_size = static_cast<u16>(
+          f.program_headers.empty() ? 0 : sizeof(elf::program_header)),
       .ph_num = static_cast<u16>(f.program_headers.size()),
       .sh_size = static_cast<u16>(sizeof(elfp::section_header)),
       .sh_num = static_cast<u16>(f.sections.size()),
       .section_str_index = f.sh_str_index});
-  writer.write(std::span(f.program_headers));
+  writer.write(f.program_headers);
   result.resize(size, 0);
 
   auto *headers =
