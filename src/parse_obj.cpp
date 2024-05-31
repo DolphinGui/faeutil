@@ -11,7 +11,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <dwarf.h>
 #include <elf.h>
 #include <elfutils/libdw.h>
 #include <err.h>
@@ -25,27 +24,15 @@
 #include <sysexits.h>
 
 namespace {
-struct buffer {
-  std::basic_string<uint8_t> b;
-};
-
-struct exception_sections {
-  Elf_Data *frame_sections;
-  buffer frame_relocations;
-  buffer lsda_sections;
-  buffer lsda_relocations;
-  uint64_t address{};
-};
-
-struct Aug {
+struct cie {
   uint8_t lsda_encoding = DW_EH_PE_omit, personality_encoding = DW_EH_PE_omit,
           ptr_encoding = DW_EH_PE_omit;
   int64_t personality{}, code_align{}, data_align{}, ret_addr_reg{};
   const uint8_t *begin_instruction{}, *end_instruction{};
 };
 
-Aug parse_cie(Reader data) {
-  Aug result{};
+cie parse_cie(Reader data) {
+  cie result{};
   auto version = data.consume<uint8_t>();
   assert(version == 1 || version == 3);
 
@@ -87,7 +74,7 @@ Aug parse_cie(Reader data) {
   return result;
 }
 
-frame parse_fde(Reader r, Aug &cie, uint64_t base_pc) {
+frame parse_fde(Reader r, cie &cie, uint64_t base_pc) {
   frame f = {};
   f.begin = consume_ptr(r, cie.ptr_encoding, {.pc = base_pc + r.bytes_read});
   f.range = consume_ptr(r, cie.ptr_encoding & 0b0000'1111,
@@ -105,7 +92,7 @@ frame parse_fde(Reader r, Aug &cie, uint64_t base_pc) {
 
 std::vector<frame> parse_eh(std::span<uint8_t> o) {
   elf::file e = elf::parse_buffer(o);
-  std::unordered_map<uint64_t, Aug> cies;
+  std::unordered_map<uint64_t, cie> cies;
   std::vector<frame> frames;
   auto section = e.get_section(".eh_frame");
   auto data = Reader(section.data);

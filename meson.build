@@ -5,8 +5,6 @@ project(
   default_options: ['warning_level=3', 'cpp_std=c++20'],
 )
 
-dwarf = dependency('libdw')
-elf = dependency('libelf')
 fmt = dependency('fmt')
 ranges = dependency('range-v3')
 
@@ -15,7 +13,7 @@ obj_util = static_library(
   'src/parse_obj.cpp',
   'src/parse_cfi.cpp',
   include_directories: include_directories('include'),
-  dependencies: [dwarf, elf, fmt, ranges],
+  dependencies: [fmt, ranges],
 )
 
 
@@ -29,7 +27,7 @@ elf_parse = static_library(
 executable(
   'faegen',
   'src/main/gen.cpp',
-  dependencies: [elf, fmt, ranges],
+  dependencies: [fmt, ranges],
   link_with: [obj_util, elf_parse],
   include_directories: include_directories('include'),
   install: true,
@@ -38,7 +36,7 @@ executable(
 executable(
   'readfae',
   'src/main/read.cpp',
-  dependencies: [elf, fmt, ranges],
+  dependencies: [fmt, ranges],
   link_with: [obj_util, elf_parse],
   include_directories: include_directories('include'),
   install: true,
