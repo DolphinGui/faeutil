@@ -1,6 +1,7 @@
 #include "binary_parsing.hpp"
 #include "parse.hpp"
 #include <cstdint>
+#include <dwarf.h>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <stdexcept>
@@ -58,6 +59,7 @@ void parse(callstack *out, Reader &r) {
     }
     return offset;
   };
+
   switch (inst & 0b11000000) {
   case DW_CFA_advance_loc:
     return;
@@ -72,7 +74,14 @@ void parse(callstack *out, Reader &r) {
   case 0:
     break;
   }
+
   switch (inst) {
+  case DW_CFA_advance_loc1:
+  case DW_CFA_advance_loc2:
+  case DW_CFA_advance_loc4:
+  case DW_CFA_set_loc:
+    return;
+
   case DW_CFA_def_cfa_register: {
     out->cfa_register = operand(uint64_t{});
     return;
