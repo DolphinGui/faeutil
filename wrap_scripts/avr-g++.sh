@@ -3,6 +3,7 @@
 set -e
 
 args=( "$@" )
+BIN=`dirname "$0"`
 
 for i in $(seq 0 ${#args[@]});
 do
@@ -15,11 +16,10 @@ do
 done
 
 if [[ "$linking" = "yes" ]]; then
-  ./avr-g++ $@
-  ./faegen $output
-  ./avr-g++ $@ __fae_data.o
+  $BIN/avr-g++ $@
+  $BIN/faegen $output
+  $BIN/avr-g++ $@ __fae_data.o
+  rm __fae_data.o
 else
-
-  ./avr-g++ $@
-
+  $BIN/avr-g++ $@
 fi
