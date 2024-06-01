@@ -1,7 +1,7 @@
 project(
   'faeutil',
   ['cpp', 'c'],
-  version: '1.3.2',
+  version: '1.3.3',
   default_options: ['warning_level=3', 'cpp_std=c++20'],
 )
 
@@ -50,7 +50,7 @@ executable(
 )
 
 install_data(
-  ['wrap_scripts/avr-g++.sh'],
+  ['wrap_scripts/avr-g++.sh', 'wrap_scripts/avr-g++.ps1'],
   preserve_path: false,
   install_dir: 'bin',
 )
