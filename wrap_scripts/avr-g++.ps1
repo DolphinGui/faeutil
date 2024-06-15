@@ -11,9 +11,9 @@ for ($i = 0; $i -le $Args.Count; $i ++)
 $bin=$PSScriptRoot
 
 If($linking){
-  $bin\avr-g++.exe @Args
-  $bin\faegen.exe $output
-  .\avr-g++.exe @Args __fae_data.o
+  & $bin\avr-g++.exe @Args
+  & $bin\faegen.exe $output
+  & $bin\avr-g++.exe @Args __fae_data.o
 }Else{
-  $bin\avr-g++.exe @Args
+  & $bin\avr-g++.exe @Args
 }
