@@ -90,20 +90,25 @@ std::vector<frame> parse_eh(std::span<uint8_t> o) {
   while (!data.empty()) {
     auto pos = data.bytes_read;
     uint64_t length = data.consume<uint32_t>();
+
     if (length == 0)
       break;
     if (length == 0xffff'ffff) {
       length = data.consume<uint64_t>();
     }
     int32_t cie_ptr = data.consume<int32_t>();
-    // this doesn't actually handle extended length properly, but hopefully
-    // nobody actually creates a hideously long CIE
-    if (cie_ptr == 0) {
-      cies.insert({pos, parse_cie(data.subspan(length - 4))});
-    } else {
-      auto cie_off = data.bytes_read - cie_ptr - sizeof(cie_ptr);
-      frames.push_back(parse_fde(data.subspan(length - 4), cies.at(cie_off),
-                                 section.address));
+    try {
+      // this doesn't actually handle extended length properly, but hopefully
+      // nobody actually creates a hideously long CIE
+      if (cie_ptr == 0) {
+        cies.insert({pos, parse_cie(data.subspan(length - 4))});
+      } else {
+        auto cie_off = data.bytes_read - cie_ptr - sizeof(cie_ptr);
+        frames.push_back(parse_fde(data.subspan(length - 4), cies.at(cie_off),
+                                   section.address));
+      }
+    } catch (std::out_of_range const &e) {
+      fmt::println(stderr, "Error while parsing cie: {}", e.what());
     }
     data.increment(length - sizeof(cie_ptr));
   }

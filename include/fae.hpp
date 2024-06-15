@@ -66,13 +66,13 @@ enum struct reg : uint8_t {
   SPH
 };
 
+constexpr inline bool is_valid_reg(uint8_t r) {
+  return !(r < 2 || (r > 17 && r < 28) || r > 29);
+}
+
 constexpr inline reg enumerate(uint8_t r) {
-  if (r < 2)
-    throw std::runtime_error("register 1 not valid!");
-  if (r > 17 && r < 28)
-    throw std::runtime_error("registers 18 - 27 not valid!");
-  if (r > 29)
-    throw std::runtime_error("registers 30, 31 not valid!");
+  if (!is_valid_reg(r))
+    throw std::out_of_range(fmt::format("register r{} not in range", r));
   if (r < 18) {
     return reg(r - 2);
   } else {

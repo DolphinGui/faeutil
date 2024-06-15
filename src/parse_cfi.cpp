@@ -1,7 +1,7 @@
 #include "binary_parsing.hpp"
+#include "fae.hpp"
 #include "parse.hpp"
 #include <cstdint>
-#include <dwarf.h>
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <stdexcept>
@@ -66,6 +66,14 @@ void parse(callstack *out, Reader &r) {
   case DW_CFA_offset: {
     uint8_t reg = inst & 0b00111111;
     auto offset = operand(uint64_t{});
+
+    // this is jank, but reg 36 is presumably either SP or a fictional return
+    // reg for some reason
+    // AVR only
+    if (!fae::is_valid_reg(reg) && reg != 36) {
+      throw std::out_of_range(
+          fmt::format("r{} is a call-clobbered register", reg));
+    }
     out->register_offsets[reg] = offset * data_alignment;
     return;
   }
