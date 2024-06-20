@@ -8,7 +8,7 @@ BIN=`dirname "$0"`
 for i in $(seq 0 ${#args[@]});
 do
     if [[ "${args[$i]}" = "-o" ]]; then
-      if [[ "${args[($i+1)]}" =~ ^.+[^o]$ ]]; then
+      if ! [[ "${args[($i+1)]}" =~ .+\.o ]]; then
         linking="yes"
         output="${args[($i+1)]}"
       fi
