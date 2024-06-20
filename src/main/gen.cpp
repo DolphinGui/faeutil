@@ -174,7 +174,7 @@ void create_fae_obj(elf::file &obj, std::span<frame> frames) {
 
 int main(int argc, char **argv) {
   assert(argc == 2);
-  assert(ctre::match<R"(.+(:?\.o|\.elf))">(argv[1]));
+  assert(!ctre::match<R"(.+\.o)">(argv[1]));
 
   auto n = read_file(argv[1]);
   auto e = elf::parse_buffer(n);
