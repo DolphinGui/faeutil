@@ -48,7 +48,8 @@ enum {
   DW_CFA_high_user = 0x3f
 };
 
-void parse(callstack *out, Reader &r) {
+void parse(callstack *out, Reader &r,
+           std::vector<std::unordered_map<uint32_t, int64_t>> &stack) {
   uint8_t inst = r.consume<uint8_t>();
   auto operand = [&](auto fake_arg) {
     decltype(fake_arg) offset{};
@@ -104,7 +105,20 @@ void parse(callstack *out, Reader &r) {
     auto reg = operand(uint64_t{});
     out->cfa_offset = operand(uint64_t{}) * data_alignment;
     out->cfa_register = reg;
+    return;
   }
+
+  case DW_CFA_remember_state: {
+    stack.push_back(out->register_offsets);
+    return;
+  }
+
+  case DW_CFA_restore_state: {
+    out->register_offsets = stack.back();
+    stack.pop_back();
+    return;
+  }
+
   case DW_CFA_nop:
     return;
   default:
@@ -117,13 +131,14 @@ void parse(callstack *out, Reader &r) {
 callstack parse_cfi(std::span<const uint8_t> cfi_initial,
                     std::span<const uint8_t> fde_cfi) {
   callstack result;
+  std::vector<std::unordered_map<uint32_t, int64_t>> state_stack;
   auto data = Reader(cfi_initial);
   while (!data.empty()) {
-    parse(&result, data);
+    parse(&result, data, state_stack);
   }
   auto ptr = Reader(fde_cfi);
   while (!ptr.empty()) {
-    parse(&result, ptr);
+    parse(&result, ptr, state_stack);
   }
   return result;
 }

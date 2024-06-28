@@ -1,7 +1,7 @@
 project(
   'faeutil',
   ['cpp', 'c'],
-  version: '1.4.2',
+  version: '1.4.3',
   default_options: ['warning_level=3', 'cpp_std=c++20'],
 )
 
