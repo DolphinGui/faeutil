@@ -6,6 +6,7 @@
 #include <fmt/ranges.h>
 #include <iterator>
 #include <stdexcept>
+#include <algorithm>
 
 namespace {
 using namespace std::string_view_literals;
