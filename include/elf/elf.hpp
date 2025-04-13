@@ -13,14 +13,14 @@ namespace elf {
 struct section {
   std::string name;
   sh::type type;
-  sh::flags flags = {};
-  u32 address = 0;
-  u32 file_offset;
+  sh::flags64 flags = {};
+  u64 address = 0;
+  u64 file_offset;
   std::vector<uint8_t> data;
   u32 link = 0;
   u32 info = 0;
-  u32 alignment = 1;
-  u32 entry_size = 0;
+  u64 alignment = 1;
+  u64 entry_size = 0;
   bool operator==(section const &o) const noexcept = default;
 };
 const section null_section = {.name = "",

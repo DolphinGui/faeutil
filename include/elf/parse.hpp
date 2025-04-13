@@ -48,18 +48,20 @@ struct header_tail {
   u16 section_str_index;
 };
 
+template<std::integral Int>
 struct section_header {
   u32 name_offset;
   sh::type type;
-  sh::flags flags;
-  u32 address;
-  u32 offset;
-  u32 size;
+  sh::flags<Int> flags;
+  Int address;
+  Int offset;
+  Int size;
   u32 link;
   u32 info;
-  u32 alignment;
-  u32 entry_size;
+  Int alignment;
+  Int entry_size;
 };
-
+using section_header64 = section_header<uint64_t>;
+using section_header32 = section_header<uint32_t>;
 } // namespace parse
 } // namespace elf

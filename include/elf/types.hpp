@@ -1,10 +1,19 @@
 #pragma once
 
+#include "cast.hpp"
 #include <array>
 #include <cstdint>
 #include <string>
+#include <type_traits>
 
 namespace elf {
+
+template <typename True, typename False, bool> struct phi;
+
+template <typename True, typename False>
+struct phi<True, False, true> : std::type_identity<True> {};
+template <typename True, typename False>
+struct phi<True, False, false> : std::type_identity<False> {};
 
 using u8 = uint8_t;
 using u16 = uint16_t;
@@ -146,7 +155,9 @@ inline auto format_as(type e) noexcept {
   }
 }
 
-enum flags : u32 {
+enum flags32 : u32 {};
+
+enum flags64 : u64 {
   write = 0x1,
   alloc = 0x2,
   execinstr = 0x4,
@@ -162,21 +173,32 @@ enum flags : u32 {
   ordered = 0x4000000,
   exclude = 0x8000000,
 };
+template <std::integral Int>
+using flags = phi<flags32, flags64, std::is_same_v<u32, Int>>::type;
 
-inline std::string format_as(flags e) noexcept {
+template<std::integral To, std::integral From>
+inline constexpr flags<To> convert(flags<From> f){
+  if constexpr(std::is_same_v<To, From>){
+    return f;
+  }
+  return flags<To>(cast<To>(cast<From>(f)));
+}
+
+
+inline std::string format_as(flags64 e) noexcept {
   std::string result;
   constexpr auto all_flags =
-      std::to_array<std::pair<flags, const char *>>({{write, "W"},
-                                                     {alloc, "A"},
-                                                     {execinstr, "X"},
-                                                     {merge, "M"},
-                                                     {strings, "S"},
-                                                     {info_link, "I"},
-                                                     {link_order, "L"},
-                                                     {os_nonconforming, "O"},
-                                                     {f_group, "G"},
-                                                     {tls, "T"},
-                                                     {exclude, "X"}});
+      std::to_array<std::pair<flags64, const char *>>({{write, "W"},
+                                                       {alloc, "A"},
+                                                       {execinstr, "X"},
+                                                       {merge, "M"},
+                                                       {strings, "S"},
+                                                       {info_link, "I"},
+                                                       {link_order, "L"},
+                                                       {os_nonconforming, "O"},
+                                                       {f_group, "G"},
+                                                       {tls, "T"},
+                                                       {exclude, "X"}});
   for (auto &&[val, name] : all_flags) {
     if (bool(e & val)) {
       result += name;
